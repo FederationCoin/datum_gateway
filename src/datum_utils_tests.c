@@ -147,8 +147,31 @@ void datum_utils_tests_addr(void) {
 	}
 }
 
+static void datum_utils_tests_share_target(void) {
+	unsigned char t1[32];
+	unsigned char t2[32];
+	int i;
+
+	get_target_from_diff(t1, 1);
+	for (i = 0; i < 32; i++) {
+		if (i == 27 || i == 28) {
+			datum_test(t1[i] == 0xff);
+		} else {
+			datum_test(t1[i] == 0);
+		}
+	}
+	get_target_from_diff(t2, 2);
+	datum_test(t2[27] == 0xff);
+	datum_test(t2[28] == 0x7f);
+	for (i = 0; i < 27; i++) {
+		datum_test(t2[i] == 0);
+	}
+	datum_test(t2[29] == 0 && t2[30] == 0 && t2[31] == 0);
+}
+
 void datum_utils_tests(void) {
 	datum_utils_tests_hex();
 	datum_utils_tests_secure_strequals();
 	datum_utils_tests_addr();
+	datum_utils_tests_share_target();
 }

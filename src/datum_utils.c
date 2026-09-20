@@ -72,11 +72,15 @@ bool datum_test_fail_(const char *expr, const char *file, unsigned int line, con
 }
 
 void get_target_from_diff(unsigned char *result, uint64_t diff) {
-	uint64_t dividend_parts[4] = {0, 0, 0, 0x00000000FFFF0000};
+	/* FederationCoin powLimit (0xffff << 216). Ocean DATUM used Bitcoin (0xffff << 208). */
+	uint64_t dividend_parts[4] = {0, 0, 0, 0x000000FFFF000000ULL};
 	uint64_t remainder = 0;
 	uint64_t quotient;
-	
+
 	memset(result, 0, 32);
+	if (diff == 0) {
+		diff = 1;
+	}
 	
 	for (int i = 3; i >= 0; i--) {
 		__uint128_t temp = remainder;

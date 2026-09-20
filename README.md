@@ -42,7 +42,7 @@ Packaged defaults:
 - `api.listen_port` `0` (dashboard off)
 - `datum.pool_host` `""` (solo)
 - `datum.pooled_mining_only` `false`
-- `stratum.ws_listen_port` `0` (WebSocket off)
+- `stratum.ws_listen_port` `23335` (WebSocket `/stratum`; `0` disables)
 
 Point hashers at TCP Stratum or `ws://127.0.0.1:<ws_listen_port>/stratum`. Password `"x"`. extraNonce2 is 8 bytes.
 
