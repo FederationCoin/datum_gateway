@@ -25,18 +25,25 @@ add_executable(datum_gateway
 	src/datum_gateway.c
 	src/datum_jsonrpc.c
 	src/datum_logger.c
+	src/datum_pow.c
+	src/datum_pow_tests.c
 	src/datum_protocol.c
 	src/datum_queue.c
 	src/datum_sockets.c
 	src/datum_stratum.c
 	src/datum_stratum_dupes.c
 	src/datum_stratum_tests.c
+	src/datum_stratum_ws.c
+	src/datum_stratum_ws_tests.c
 	src/datum_submitblock.c
 	src/datum_utils.c
 	src/datum_utils_tests.c
 	src/thirdparty_base58.c
 	src/thirdparty_segwit_addr.c
 	${CMAKE_CURRENT_BINARY_DIR}/web_resources.h
+)
+target_compile_definitions(datum_gateway PRIVATE
+	"DATUM_BLOCK_HEADER_V2_JSON=\"${CMAKE_SOURCE_DIR}/src/test/block_header_v2.json\""
 )
 install(TARGETS datum_gateway DESTINATION bin)
 
@@ -53,7 +60,6 @@ set(WEB_RESOURCES
 	www/foot.html
 	www/assets/post.js
 	www/assets/style.css
-	www/assets/icons/datum_logo.svg
 	www/assets/icons/favicon.ico
 )
 
@@ -161,7 +167,6 @@ if(ENABLE_API)
 endif()
 
 install(FILES README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
-install(FILES doc/DATUM_recommended_setup-network_diagram.svg DESTINATION ${CMAKE_INSTALL_DOCDIR}/doc)
 install(FILES doc/usernames.md DESTINATION ${CMAKE_INSTALL_DOCDIR}/doc)
 
 set(PREGEN_DOC ${CMAKE_SOURCE_DIR}/doc/example_datum_gateway_config.json)

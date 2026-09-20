@@ -55,6 +55,7 @@
 #include "datum_utils.h"
 #include "datum_blocktemplates.h"
 #include "datum_stratum.h"
+#include "datum_stratum_ws.h"
 #include "datum_conf.h"
 #include "datum_sockets.h"
 #include "datum_api.h"
@@ -65,8 +66,8 @@ const char *datum_gateway_config_filename = NULL;
 
 // ARGP stuff
 const char *argp_program_version = "datum_gateway " DATUM_PROTOCOL_VERSION;
-const char *argp_program_bug_address = "<jason@ocean.xyz>";
-static char doc[] = "Decentralized Alternative Templates for Universal Mining - Pool Gateway";
+const char *argp_program_bug_address = "https://github.com/FederationCoin/datum_gateway";
+static char doc[] = "FederationCoin DATUM Gateway — header-v2 / Blake2b Stratum for federationcoind";
 static char args_doc[] = "";
 static struct argp_option options[] = {
 	{"help", '?', 0, 0, "Show custom help", 0},
@@ -82,8 +83,10 @@ struct arguments {
 };
 
 void datum_stratum_tests(void);
+void datum_stratum_ws_tests(void);
 void datum_conf_tests(void);
 void datum_utils_tests(void);
+void datum_pow_tests(void);
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 	struct arguments *arguments = state->input;
@@ -105,7 +108,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 		case 0x101:  // test
 			datum_utils_tests();
 			datum_conf_tests();
+			datum_pow_tests();
 			datum_stratum_tests();
+			datum_stratum_ws_tests();
 			exit(datum_test_failed);
 		default:
 			return ARGP_ERR_UNKNOWN;
@@ -119,8 +124,8 @@ static struct argp argp = {options, parse_opt, args_doc, doc};
 void datum_print_banner(void) {
 	puts("");
 	puts(" *****************************************************************");
-	puts(" * DATUM Gateway --- Copyright (c) 2024-2025 Bitcoin Ocean, LLC, *");
-	puts(" *                     Jason Hughes, and individual contributors *");
+	puts(" * FederationCoin DATUM Gateway (Ocean pin dbc3b143)              *");
+	puts(" * MIT; mines this chain (federationcoind, header-v2 / GetHash)   *");
 	printf(" * git commit: %-49s *\n", GIT_COMMIT_HASH);
 	puts(" *****************************************************************");
 	puts("");
@@ -138,6 +143,7 @@ int main(const int argc, const char * const * const argv) {
 	
 	struct arguments arguments;
 	pthread_t pthread_datum_stratum_v1;
+	pthread_t pthread_datum_stratum_ws;
 	pthread_t pthread_datum_gateway_template;
 	int i;
 	int fail_retries=0;
@@ -229,6 +235,10 @@ int main(const int argc, const char * const * const argv) {
 	// Note: The stratum thread will wait for a template to be available for some time before panicking.
 	DLOG_DEBUG("Starting Stratum v1 server");
 	pthread_create(&pthread_datum_stratum_v1, NULL, datum_stratum_v1_socket_server, NULL);
+	if (datum_config.stratum_ws_listen_port > 0) {
+		DLOG_DEBUG("Starting Stratum WebSocket server");
+		pthread_create(&pthread_datum_stratum_ws, NULL, datum_stratum_ws_server, NULL);
+	}
 	
 	// Randomize the reconnect delay from 5 to 20 seconds to prevent hammering the server
 	next_reconnect_attempt_ms = ( 5000 + (rand() % 15001) );

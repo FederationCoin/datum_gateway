@@ -107,6 +107,8 @@ typedef struct {
 	
 	char stratum_v1_listen_addr[128];
 	int stratum_v1_listen_port;
+	char stratum_ws_listen_addr[128];
+	int stratum_ws_listen_port;
 	int stratum_v1_max_clients;
 	int stratum_v1_max_threads;
 	int stratum_v1_max_clients_per_thread;
@@ -161,7 +163,7 @@ typedef struct {
 	int datum_protocol_global_timeout;
 	uint64_t datum_protocol_global_timeout_ms;
 	
-	uint32_t prime_id;
+	uint64_t prime_id;
 	unsigned char override_mining_pool_scriptsig[256];
 	int override_mining_pool_scriptsig_len;
 	char override_mining_coinbase_tag_primary[256];

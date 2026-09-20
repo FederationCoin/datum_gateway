@@ -392,55 +392,52 @@ void hash2hex(unsigned char *bytes, char *hexString) {
 	hexString[64] = '\0';
 }
 
-int addr_2_output_script(const char *addr, unsigned char *script, int max_len) {
-	// takes any valid bitcoin address, and converts it to an output script
-	// returns length of script written, or 0 on failure
-	// NOTE: This is agnostic to testnet vs mainnet addresses! be careful with your networks!
-	
-	int i;
-	size_t al;
+static int segwit_hrp_to_script(const char *addr, const char *hrp, unsigned char *script, int max_len) {
 	uint8_t witprog[80];
 	size_t witprog_len;
 	int witver;
-	const char* hrp = "bc";
-	
-	al = strlen(addr);
-	
-	if (al < 16) return 0;
-	
-	if (((addr[0] == 'b') && (addr[1] == 'c')) || ((addr[0] == 't') && (addr[1] == 'b'))) {
-		// bitcoin mainnet and testnet BIP 0173
-		if (addr[0] == 't') {
-			hrp = "tb";
-		}
-		i = segwit_addr_decode(&witver, witprog, &witprog_len, hrp, addr);
-		if (!i) {
-			return 0;
-		}
-		
-		if (!(((witver == 0) && ((witprog_len == 20) || (witprog_len == 32))) || ((witver == 1) && (witprog_len == 32)))) {
-			// enforcing length restrictions and known witness versions
-			// TODO: Add any new witness version/len combos that are valid
-			return 0;
-		}
-		
-		if (max_len < witprog_len+2) {
-			return 0;
-		}
-		
-		script[0] = (uint8_t)(witver ? (witver + 0x50) : 0);
-		script[1] = (uint8_t)witprog_len;
-		memcpy(script + 2, witprog, witprog_len);
-		return witprog_len + 2;
-	} else {
-		// try P2PKH or P2SH
-		const size_t sz = blkmk_address_to_script(script, max_len, addr);
-		if (sz > INT_MAX) return 0;
-		return sz;
+
+	if (!segwit_addr_decode(&witver, witprog, &witprog_len, hrp, addr)) {
+		return 0;
 	}
-	
-	// nothing worked?
-	return 0;
+	if (!(((witver == 0) && ((witprog_len == 20) || (witprog_len == 32))) || ((witver == 1) && (witprog_len == 32)))) {
+		return 0;
+	}
+	if (max_len < (int)witprog_len + 2) {
+		return 0;
+	}
+	script[0] = (uint8_t)(witver ? (witver + 0x50) : 0);
+	script[1] = (uint8_t)witprog_len;
+	memcpy(script + 2, witprog, witprog_len);
+	return (int)witprog_len + 2;
+}
+
+int addr_2_output_script(const char *addr, unsigned char *script, int max_len) {
+	// FederationCoin invoice addresses (gfcn / tgfcn / gfcnrt, plus this
+	// chain's Base58 versions). Not Bitcoin bc/tb.
+	int n;
+	size_t sz;
+
+	if (!addr || strlen(addr) < 16) {
+		return 0;
+	}
+	n = segwit_hrp_to_script(addr, "tgfcn", script, max_len);
+	if (n) {
+		return n;
+	}
+	n = segwit_hrp_to_script(addr, "gfcn", script, max_len);
+	if (n) {
+		return n;
+	}
+	n = segwit_hrp_to_script(addr, "gfcnrt", script, max_len);
+	if (n) {
+		return n;
+	}
+	sz = blkmk_address_to_script(script, max_len, addr);
+	if (sz > INT_MAX) {
+		return 0;
+	}
+	return (int)sz;
 }
 
 int output_script_2_addr(const unsigned char *script, const int len, char *addr) {

@@ -62,16 +62,16 @@ const char *datum_conf_var_type_text[] = {
 
 const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 	// Bitcoind configs
-	{ .var_type = DATUM_CONF_STRING, 	.category = "bitcoind", 	.name = "rpccookiefile",			.description = "Path to file to read RPC cookie from, for communication with local bitcoind.",
+	{ .var_type = DATUM_CONF_STRING, 	.category = "bitcoind", 	.name = "rpccookiefile",			.description = "Path to file to read RPC cookie from, for communication with local federationcoind (example: ~/.federationcoin/testnet3/.cookie).",
 		.required = false, .ptr = datum_config.bitcoind_rpccookiefile,			.default_string[0] = "", .max_string_len = sizeof(datum_config.bitcoind_rpccookiefile) },
-	{ .var_type = DATUM_CONF_STRING, 	.category = "bitcoind", 	.name = "rpcuser",					.description = "RPC username for communication with local bitcoind.",
+	{ .var_type = DATUM_CONF_STRING, 	.category = "bitcoind", 	.name = "rpcuser",					.description = "RPC username for communication with local federationcoind.",
 		.example = "\"datum\"",
 		.required = false, .ptr = datum_config.bitcoind_rpcuser,			.default_string[0] = "", .max_string_len = sizeof(datum_config.bitcoind_rpcuser) },
-	{ .var_type = DATUM_CONF_STRING, 	.category = "bitcoind", 	.name = "rpcpassword",				.description = "RPC password for communication with local bitcoind.",
+	{ .var_type = DATUM_CONF_STRING, 	.category = "bitcoind", 	.name = "rpcpassword",				.description = "RPC password for communication with local federationcoind. Prefer bitcoind.rpccookiefile (~/.federationcoin/testnet3/.cookie) instead of putting a password in git.",
 		.example = "\"something only you know\"",
 		.required = false, .ptr = datum_config.bitcoind_rpcpassword,			.default_string[0] = "", .max_string_len = sizeof(datum_config.bitcoind_rpcpassword) },
-	{ .var_type = DATUM_CONF_STRING, 	.category = "bitcoind", 	.name = "rpcurl",					.description = "RPC URL for communication with local bitcoind. (GBT Template Source)",
-		.example = "\"http://localhost:8332\"",
+	{ .var_type = DATUM_CONF_STRING, 	.category = "bitcoind", 	.name = "rpcurl",					.description = "RPC URL for communication with local federationcoind (GBT template source). Testnet RPC is 35332 (federationcoind -testnet).",
+		.example = "\"http://localhost:35332\"",
 		.required = true, .ptr = datum_config.bitcoind_rpcurl, .max_string_len = sizeof(datum_config.bitcoind_rpcurl) },
 	{ .var_type = DATUM_CONF_INT,	 	.category = "bitcoind", 	.name = "work_update_seconds",		.description = "How many seconds between normal work updates?  (5-120, 40 suggested)",
 		.required = false, .ptr = &datum_config.bitcoind_work_update_seconds, .default_int = 40 },
@@ -80,21 +80,28 @@ const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 		.required = false, .ptr = &datum_config.bitcoind_notify_fallback, .default_bool = true },
 	
 	// stratum v1 server configs
-	{ .var_type = DATUM_CONF_STRING, 	.category = "stratum", 		.name = "listen_addr",					.description = "IP address to listen for Stratum Gateway connections",
-		.required = false, .ptr = datum_config.stratum_v1_listen_addr,				.default_string[0] = "", .max_string_len = sizeof(datum_config.stratum_v1_listen_addr) },
+	{ .var_type = DATUM_CONF_STRING, 	.category = "stratum", 		.name = "listen_addr",					.description = "IP address to listen for Stratum Gateway connections (empty = all interfaces; packaged default is loopback)",
+		.example_default = true,
+		.required = false, .ptr = datum_config.stratum_v1_listen_addr,				.default_string[0] = "127.0.0.1", .max_string_len = sizeof(datum_config.stratum_v1_listen_addr) },
 	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "listen_port",				.description = "Listening port for Stratum Gateway",
 		.example_default = true,
 		.required = false, .ptr = &datum_config.stratum_v1_listen_port, 				.default_int = 23334 },
+	{ .var_type = DATUM_CONF_STRING, 	.category = "stratum", 		.name = "ws_listen_addr",				.description = "IP address to listen for hasher Stratum over WebSocket (path /stratum). Not a modifier on TCP.",
+		.example_default = true,
+		.required = false, .ptr = datum_config.stratum_ws_listen_addr,				.default_string[0] = "127.0.0.1", .max_string_len = sizeof(datum_config.stratum_ws_listen_addr) },
+	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "ws_listen_port",			.description = "Dedicated WebSocket Stratum port (not 23334). 0 disables. Path /stratum; RFC6455 text frames.",
+		.example_default = true,
+		.required = false, .ptr = &datum_config.stratum_ws_listen_port, 				.default_int = 0 },
 	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "max_clients_per_thread",	.description = "Maximum clients per Stratum server thread",
-		.required = false, .ptr = &datum_config.stratum_v1_max_clients_per_thread, 		.default_int = 128 },
+		.required = false, .ptr = &datum_config.stratum_v1_max_clients_per_thread, 		.default_int = 8 },
 	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "max_threads",				.description = "Maximum Stratum server threads",
-		.required = false, .ptr = &datum_config.stratum_v1_max_threads,					.default_int = 8 },
+		.required = false, .ptr = &datum_config.stratum_v1_max_threads,					.default_int = 1 },
 	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "max_clients",				.description = "Maximum total Stratum clients before rejecting connections",
-		.required = false, .ptr = &datum_config.stratum_v1_max_clients, 				.default_int = 1024 },
+		.required = false, .ptr = &datum_config.stratum_v1_max_clients, 				.default_int = 8 },
 	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "trust_proxy",		.description = "Enable support for the PROXY protocol, trusting up to the specified number of levels deep of proxies (-1 to disable entirely)",
 		.required = false, .ptr = &datum_config.stratum_v1_trust_proxy, 	.default_int = -1 },
 	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "vardiff_min",				.description = "Work difficulty floor",
-		.required = false, .ptr = &datum_config.stratum_v1_vardiff_min, 				.default_int = 16384 },
+		.required = false, .ptr = &datum_config.stratum_v1_vardiff_min, 				.default_int = 1 },
 	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "vardiff_target_shares_min",.description = "Adjust work difficulty to target this many shares per minute",
 		.required = false, .ptr = &datum_config.stratum_v1_vardiff_target_shares_min, 	.default_int = 8 },
 	{ .var_type = DATUM_CONF_INT, 		.category = "stratum", 		.name = "vardiff_quickdiff_count",	.description = "How many shares before considering a quick diff update",
@@ -114,8 +121,8 @@ const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 	{ .var_type = DATUM_CONF_USERNAME_MODS, .category = "stratum", .name = "username_modifiers", .description = "Modifiers to redirect some portion of shares to alternate usernames", .required = false, .ptr = &datum_config.stratum_username_mod, },
 	
 	// mining settings
-	{ .var_type = DATUM_CONF_STRING, 	.category = "mining", 		.name = "pool_address",				.description = "Bitcoin address used for mining rewards.",
-		.example = "\"put your own Bitcoin invoice address here\"",
+	{ .var_type = DATUM_CONF_STRING, 	.category = "mining", 		.name = "pool_address",				.description = "FederationCoin address used for mining rewards.",
+		.example = "\"put your own FederationCoin invoice address here\"",
 		.required = true, .ptr = datum_config.mining_pool_address, .max_string_len = sizeof(datum_config.mining_pool_address) },
 	{ .var_type = DATUM_CONF_STRING, 	.category = "mining", 		.name = "coinbase_tag_primary",		.description = "Text to have in the primary coinbase tag when not using pool (overridden by DATUM Pool)",
 		.example_default = true,
@@ -137,7 +144,7 @@ const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 	{ .var_type = DATUM_CONF_STRING, 	.category = "api", 			.name = "listen_addr",					.description = "IP address to listen for API/dashboard requests",
 		.required = false, .ptr = datum_config.api_listen_addr,				.default_string[0] = "", .max_string_len = sizeof(datum_config.api_listen_addr) },
 	{ .var_type = DATUM_CONF_INT, 		.category = "api",	 		.name = "listen_port",				.description = "Port to listen for API/dashboard requests (0=disabled)",
-		.example = "7152",
+		.example_default = true,
 		.required = false, .ptr = &datum_config.api_listen_port, 						.default_int = 0 },
 	{ .var_type = DATUM_CONF_BOOL, 		.category = "api",	 		.name = "modify_conf",				.description = "Enable modifying the config file from API/dashboard",
 		.example_default = true,
@@ -172,12 +179,13 @@ const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 		.required = false, .ptr = &datum_config.clog_level_file, .default_int = 1 },
 	
 	// datum options
-	{ .var_type = DATUM_CONF_STRING, 	.category = "datum", 		.name = "pool_host",					.description = "Remote DATUM server host/ip to use for decentralized pooled mining (set to \"\" to disable pooled mining)",
-		.required = false, .ptr = datum_config.datum_pool_host,			.default_string[0] = "datum-beta1.mine.ocean.xyz", .max_string_len = sizeof(datum_config.datum_pool_host) },
-	{ .var_type = DATUM_CONF_INT, 		.category = "datum",		.name = "pool_port",					.description = "Remote DATUM server port",
-		.required = false, .ptr = &datum_config.datum_pool_port, .default_int = 28915 },
-	{ .var_type = DATUM_CONF_STRING, 	.category = "datum", 		.name = "pool_pubkey",					.description = "Public key of the DATUM server for initiating encrypted connection. Get from secure location, or set to empty to auto-fetch.",
-		.required = false, .ptr = datum_config.datum_pool_pubkey,		.default_string[0] = "f21f2f0ef0aa1970468f22bad9bb7f4535146f8e4a8f646bebc93da3d89b1406f40d032f09a417d94dc068055df654937922d2c89522e3e8f6f0e649de473003", .max_string_len = sizeof(datum_config.datum_pool_pubkey) },
+	{ .var_type = DATUM_CONF_STRING, 	.category = "datum", 		.name = "pool_host",					.description = "Remote DATUM Prime host/ip for decentralized pooled mining (set to \"\" to disable pooled mining; solo is valid)",
+		.example_default = true,
+		.required = false, .ptr = datum_config.datum_pool_host,			.default_string[0] = "", .max_string_len = sizeof(datum_config.datum_pool_host) },
+	{ .var_type = DATUM_CONF_INT, 		.category = "datum",		.name = "pool_port",					.description = "Remote DATUM Prime port",
+		.required = false, .ptr = &datum_config.datum_pool_port, .default_int = 28916 },
+	{ .var_type = DATUM_CONF_STRING, 	.category = "datum", 		.name = "pool_pubkey",					.description = "Public key of the DATUM Prime for initiating encrypted connection. Empty to auto-fetch.",
+		.required = false, .ptr = datum_config.datum_pool_pubkey,		.default_string[0] = "", .max_string_len = sizeof(datum_config.datum_pool_pubkey) },
 	{ .var_type = DATUM_CONF_BOOL, 		.category = "datum", 		.name = "pool_pass_workers",			.description = "Pass stratum miner usernames as sub-worker names to the pool (pool_username.miner's username)",
 		.example_default = true,
 		.required = false, .ptr = &datum_config.datum_pool_pass_workers, 		.default_bool = true },
@@ -186,9 +194,9 @@ const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 		.required = false, .ptr = &datum_config.datum_pool_pass_full_users, 	.default_bool = true },
 	{ .var_type = DATUM_CONF_BOOL, 		.category = "datum", 		.name = "always_pay_self",				.description = "Always include my datum.pool_username payout in my blocks if possible",
 		.required = false, .ptr = &datum_config.datum_always_pay_self, 	.default_bool = true },
-	{ .var_type = DATUM_CONF_BOOL, 		.category = "datum", 		.name = "pooled_mining_only",			.description = "If the DATUM pool server becomes unavailable, terminate miner connections (otherwise, 100% of any blocks you find pay mining.pool_address)",
+	{ .var_type = DATUM_CONF_BOOL, 		.category = "datum", 		.name = "pooled_mining_only",			.description = "If the DATUM Prime becomes unavailable, terminate miner connections (otherwise, 100% of any blocks you find pay mining.pool_address)",
 		.example_default = true,
-		.required = false, .ptr = &datum_config.datum_pooled_mining_only, 	.default_bool = true },
+		.required = false, .ptr = &datum_config.datum_pooled_mining_only, 	.default_bool = false },
 	{ .var_type = DATUM_CONF_INT, 		.category = "datum", 		.name = "protocol_global_timeout",		.description = "If no valid messages are received from the DATUM server in this many seconds, give up and try to reconnect",
 		.required = false, .ptr = &datum_config.datum_protocol_global_timeout, 	.default_int = 60 },
 };
@@ -606,6 +614,15 @@ int datum_read_config(const char *conffile) {
 	
 	if (datum_config.datum_protocol_global_timeout < (datum_config.bitcoind_work_update_seconds+5)) {
 		DLOG_FATAL("DATUM protocol global timeout must be at least the work update interval plus 5 seconds.");
+		return 0;
+	}
+	
+	if (datum_config.stratum_v1_listen_port > 0 && datum_config.stratum_ws_listen_port == datum_config.stratum_v1_listen_port) {
+		DLOG_FATAL("stratum.ws_listen_port must be a dedicated port, not the TCP Stratum port.");
+		return 0;
+	}
+	if (datum_config.stratum_ws_listen_port == 23334) {
+		DLOG_FATAL("stratum.ws_listen_port must not be 23334 (TCP Stratum). Use another port, or 0 to disable.");
 		return 0;
 	}
 	
