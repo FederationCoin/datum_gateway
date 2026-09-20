@@ -40,6 +40,8 @@
 #include <strings.h>
 
 #include "datum_utils.h"
+#include "thirdparty_base58.h"
+#include "thirdparty_segwit_addr.h"
 
 void datum_utils_tests_hex_to_bin(const uint8_t c, char * const x, const char * const fmt) {
 	unsigned char b[3];
@@ -117,7 +119,36 @@ void datum_utils_tests_secure_strequals(void) {
 	datum_test(datum_secure_strequals(NULL, 0, ""));
 }
 
+void datum_utils_tests_addr(void) {
+	unsigned char script[64];
+	char addr[128];
+	uint8_t h160[20];
+	size_t b58sz;
+	int i;
+
+	memset(h160, 0x11, sizeof(h160));
+	datum_test(segwit_addr_encode(addr, "tgfcn", 0, h160, sizeof(h160)) == 1);
+	datum_test(addr_2_output_script(addr, script, sizeof(script)) == 22);
+	datum_test(script[0] == 0 && script[1] == 20);
+	datum_test(memcmp(script + 2, h160, sizeof(h160)) == 0);
+
+	datum_test(segwit_addr_encode(addr, "gfcn", 0, h160, sizeof(h160)) == 1);
+	datum_test(addr_2_output_script(addr, script, sizeof(script)) == 22);
+
+	datum_test(segwit_addr_encode(addr, "bc", 0, h160, sizeof(h160)) == 1);
+	datum_test(addr_2_output_script(addr, script, sizeof(script)) == 0);
+
+	b58sz = sizeof(addr);
+	datum_test(b58check_enc(addr, &b58sz, 95, h160, sizeof(h160)));
+	datum_test(addr_2_output_script(addr, script, sizeof(script)) == 25);
+	datum_test(script[0] == 0x76 && script[24] == 0xac);
+	for (i = 0; i < 20; i++) {
+		datum_test(script[3 + i] == h160[i]);
+	}
+}
+
 void datum_utils_tests(void) {
 	datum_utils_tests_hex();
 	datum_utils_tests_secure_strequals();
+	datum_utils_tests_addr();
 }
