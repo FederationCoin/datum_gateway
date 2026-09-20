@@ -47,6 +47,7 @@
 
 #include <jansson.h>
 
+#include "datum_blocktemplates.h"
 #include "datum_conf.h"
 #include "datum_stratum_ws.h"
 #include "datum_utils.h"
@@ -405,15 +406,17 @@ static void datum_stratum_ws_rpc_test(void)
 	datum_test(s.fail == 0);
 }
 
-static void datum_stratum_ws_pool_info_tests(void)
+static void datum_stratum_ws_gateway_info_tests(void)
 {
 	char buf[2048];
 	json_error_t err;
 	json_t *j;
 	json_t *result;
+	json_t *node;
+	json_t *pool;
 	int i;
 
-	datum_config.stratum_ws_pool_info = true;
+	datum_config.stratum_ws_gateway_info = true;
 	memset(datum_config.datum_pool_host, 0, sizeof(datum_config.datum_pool_host));
 	strcpy(datum_config.datum_pool_host, "prime.example");
 	datum_config.datum_pool_port = 28916;
@@ -423,53 +426,88 @@ static void datum_stratum_ws_pool_info_tests(void)
 	strcpy(datum_config.mining_coinbase_tag_primary, "TAG");
 	memset(datum_config.mining_pool_website, 0, sizeof(datum_config.mining_pool_website));
 	strcpy(datum_config.mining_pool_website, "https://ex.example");
+	datum_blocktemplates_gbt_ok = true;
+	datum_blocktemplates_error = NULL;
 
-	datum_test(datum_ws_format_pool_info_result(9, buf, sizeof(buf)) == 0);
+	datum_test(datum_ws_format_gateway_info_object_with(buf, sizeof(buf), true, true, true) == 0);
+	j = json_loads(buf, 0, &err);
+	datum_test(j != NULL);
+	if (j) {
+		node = json_object_get(j, "node");
+		pool = json_object_get(j, "pool");
+		datum_test(json_is_object(node) && json_is_object(pool));
+		datum_test(strcmp(json_string_value(json_object_get(node, "status")), "healthy") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(pool, "name")), "House") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(pool, "coinbaseTag")), "TAG") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(pool, "websiteUrl")), "https://ex.example") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(pool, "prime")), "prime.example:28916") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(pool, "status")), "healthy") == 0);
+		json_decref(j);
+	}
+
+	datum_test(datum_ws_format_gateway_info_object_with(buf, sizeof(buf), false, true, false) == 0);
+	j = json_loads(buf, 0, &err);
+	datum_test(j != NULL);
+	if (j) {
+		node = json_object_get(j, "node");
+		pool = json_object_get(j, "pool");
+		datum_test(strcmp(json_string_value(json_object_get(node, "status")), "not-healthy") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(pool, "status")), "not-healthy") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(pool, "prime")), "prime.example:28916") == 0);
+		json_decref(j);
+	}
+
+	datum_config.datum_pool_host[0] = 0;
+	datum_blocktemplates_gbt_ok = false;
+	datum_test(datum_ws_format_gateway_info_object(buf, sizeof(buf)) == 0);
+	j = json_loads(buf, 0, &err);
+	datum_test(j != NULL);
+	if (j) {
+		node = json_object_get(j, "node");
+		pool = json_object_get(j, "pool");
+		datum_test(strcmp(json_string_value(json_object_get(node, "status")), "not-healthy") == 0);
+		datum_test(json_object_get(pool, "prime") == NULL);
+		datum_test(json_object_get(pool, "status") == NULL);
+		datum_test(strcmp(json_string_value(json_object_get(pool, "name")), "House") == 0);
+		json_decref(j);
+	}
+
+	datum_blocktemplates_gbt_ok = true;
+	datum_blocktemplates_error = NULL;
+	datum_test(datum_ws_format_gateway_info_result(9, buf, sizeof(buf)) == 0);
 	j = json_loads(buf, 0, &err);
 	datum_test(j != NULL);
 	if (j) {
 		datum_test(json_integer_value(json_object_get(j, "id")) == 9);
 		datum_test(json_is_null(json_object_get(j, "error")));
 		result = json_object_get(j, "result");
-		datum_test(json_is_object(result));
-		datum_test(strcmp(json_string_value(json_object_get(result, "prime")), "prime.example:28916") == 0);
-		datum_test(strcmp(json_string_value(json_object_get(result, "name")), "House") == 0);
-		datum_test(strcmp(json_string_value(json_object_get(result, "coinbaseTag")), "TAG") == 0);
-		datum_test(strcmp(json_string_value(json_object_get(result, "websiteUrl")), "https://ex.example") == 0);
+		node = json_object_get(result, "node");
+		datum_test(strcmp(json_string_value(json_object_get(node, "status")), "healthy") == 0);
 		json_decref(j);
 	}
 
-	datum_config.datum_pool_host[0] = 0;
-	datum_test(datum_ws_format_pool_info_object(buf, sizeof(buf)) == 0);
-	j = json_loads(buf, 0, &err);
-	datum_test(j != NULL);
-	if (j) {
-		datum_test(json_string_value(json_object_get(j, "prime")) && json_string_value(json_object_get(j, "prime"))[0] == 0);
-		json_decref(j);
-	}
-
-	datum_test(datum_ws_format_pool_info_error(9, 24, "pool info disabled", buf, sizeof(buf)) == 0);
+	datum_test(datum_ws_format_gateway_info_error(9, 24, "gateway info disabled", buf, sizeof(buf)) == 0);
 	j = json_loads(buf, 0, &err);
 	datum_test(j != NULL);
 	if (j) {
 		json_t *e = json_object_get(j, "error");
 		datum_test(json_is_array(e) && json_integer_value(json_array_get(e, 0)) == 24);
-		datum_test(strcmp(json_string_value(json_array_get(e, 1)), "pool info disabled") == 0);
+		datum_test(strcmp(json_string_value(json_array_get(e, 1)), "gateway info disabled") == 0);
 		json_decref(j);
 	}
 
-	datum_test(datum_ws_format_pool_info_notify(buf, sizeof(buf)) == 0);
+	datum_test(datum_ws_format_gateway_info_notify(buf, sizeof(buf)) == 0);
 	j = json_loads(buf, 0, &err);
 	datum_test(j != NULL);
 	if (j) {
 		datum_test(json_is_null(json_object_get(j, "id")));
-		datum_test(strcmp(json_string_value(json_object_get(j, "method")), "client.pool_info") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(j, "method")), "client.gateway_info") == 0);
 		json_decref(j);
 	}
 
-	datum_test(datum_ws_pool_info_rate_ok(0, 1000));
-	datum_test(!datum_ws_pool_info_rate_ok(1000, 5999));
-	datum_test(datum_ws_pool_info_rate_ok(1000, 6000));
+	datum_test(datum_ws_gateway_info_rate_ok(0, 1000));
+	datum_test(!datum_ws_gateway_info_rate_ok(1000, 5999));
+	datum_test(datum_ws_gateway_info_rate_ok(1000, 6000));
 
 	datum_test(strstr(datum_ws_http_429(), "429") != NULL);
 
@@ -489,5 +527,5 @@ void datum_stratum_ws_tests(void)
 	datum_stratum_ws_accept_key_test();
 	datum_stratum_ws_port0_test();
 	datum_stratum_ws_rpc_test();
-	datum_stratum_ws_pool_info_tests();
+	datum_stratum_ws_gateway_info_tests();
 }

@@ -81,7 +81,7 @@ typedef struct T_DATUM_CLIENT_DATA {
 	bool websocket;
 	int ws_json_len;
 	char ws_json[1024];
-	uint64_t ws_pool_info_last_ms;
+	uint64_t ws_gateway_info_last_ms;
 	
 	void *app_client_data;
 	

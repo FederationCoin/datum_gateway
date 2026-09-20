@@ -46,7 +46,7 @@
 #define DATUM_WS_MAX_PAYLOAD 16384
 #define DATUM_WS_ACCEPT_B64_LEN 28
 #define DATUM_WS_MAX_PER_IP 6
-#define DATUM_WS_POOL_INFO_RATE_MS 5000
+#define DATUM_WS_GATEWAY_INFO_RATE_MS 5000
 
 int datum_ws_encode_text(const char *payload, size_t n, uint8_t *out, size_t out_max);
 int datum_ws_encode_masked_text(const char *payload, size_t n, const uint8_t mask[4], uint8_t *out, size_t out_max);
@@ -65,14 +65,16 @@ int datum_ws_ip_acquire(const char *ip);
 void datum_ws_ip_release(const char *ip);
 void datum_ws_ip_reset(void);
 const char *datum_ws_http_429(void);
-bool datum_ws_pool_info_rate_ok(uint64_t last_ms, uint64_t now);
-int datum_ws_format_pool_info_object(char *buf, size_t buf_sz);
-int datum_ws_format_pool_info_result(uint64_t id, char *buf, size_t buf_sz);
-int datum_ws_format_pool_info_error(uint64_t id, int code, const char *msg, char *buf, size_t buf_sz);
-int datum_ws_format_pool_info_notify(char *buf, size_t buf_sz);
-int datum_ws_client_pool_info(T_DATUM_CLIENT_DATA *c, uint64_t id);
-void datum_ws_send_pool_info_notify(T_DATUM_CLIENT_DATA *c);
-void datum_ws_broadcast_pool_info(void);
+bool datum_ws_gateway_info_rate_ok(uint64_t last_ms, uint64_t now);
+int datum_ws_format_gateway_info_object_with(char *buf, size_t buf_sz, bool node_healthy, bool prime_configured, bool prime_healthy);
+int datum_ws_format_gateway_info_object(char *buf, size_t buf_sz);
+int datum_ws_format_gateway_info_result(uint64_t id, char *buf, size_t buf_sz);
+int datum_ws_format_gateway_info_error(uint64_t id, int code, const char *msg, char *buf, size_t buf_sz);
+int datum_ws_format_gateway_info_notify(char *buf, size_t buf_sz);
+int datum_ws_client_gateway_info(T_DATUM_CLIENT_DATA *c, uint64_t id);
+void datum_ws_send_gateway_info_notify(T_DATUM_CLIENT_DATA *c);
+void datum_ws_broadcast_gateway_info(void);
+void datum_ws_maybe_broadcast_gateway_info(void);
 
 void *datum_stratum_ws_server(void *arg);
 void datum_stratum_ws_tests(void);

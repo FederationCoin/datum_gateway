@@ -1275,7 +1275,7 @@ bool datum_api_config_set(const char * const key, const char * const val, struct
 		if (datum_config.datum_pool_host[0]) {
 			strcpy(datum_config.datum_pool_host, val);
 			datum_api_json_modify_new("datum", "pool_host", json_string(val));
-			datum_ws_broadcast_pool_info();
+			datum_ws_broadcast_gateway_info();
 			// TODO: apply change without restarting
 			// TODO: switch pools smoother (keep old connection alive for share submissions until those jobs expire)
 			status->need_restart = true;
@@ -1299,7 +1299,7 @@ bool datum_api_config_set(const char * const key, const char * const val, struct
 		}
 		datum_config.datum_pool_port = val_int;
 		datum_api_json_modify_new("datum", "pool_port", json_integer(val_int));
-		datum_ws_broadcast_pool_info();
+		datum_ws_broadcast_gateway_info();
 		// TODO: apply change without restarting
 		// TODO: switch pools smoother (keep old connection alive for share submissions until those jobs expire)
 		status->need_restart = true;

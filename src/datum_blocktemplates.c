@@ -53,6 +53,7 @@
 #include "datum_blocktemplates.h"
 #include "datum_conf.h"
 #include "datum_stratum.h"
+#include "datum_stratum_ws.h"
 
 volatile sig_atomic_t new_notify = 0;
 atomic_int new_notify_threadsafe = 0;
@@ -88,6 +89,7 @@ T_DATUM_TEMPLATE_DATA *template_data = NULL;
 int next_template_index = 0;
 
 const char *datum_blocktemplates_error = NULL;
+bool datum_blocktemplates_gbt_ok = false;
 
 int datum_template_init(void) {
 	char *temp = NULL, *ptr = NULL;
@@ -471,20 +473,26 @@ void *datum_gateway_template_thread(void *args) {
 		
 		if (!gbt) {
 			datum_blocktemplates_error = "Could not fetch new template!";
+			datum_blocktemplates_gbt_ok = false;
 			DLOG_ERROR("Could not fetch new template from %s!", datum_config.bitcoind_rpcurl);
+			datum_ws_maybe_broadcast_gateway_info();
 			sleep(1);
 			continue;
 		} else {
 			res_val = json_object_get(gbt, "result");
 			if (!res_val) {
 				datum_blocktemplates_error = "Could not decode GBT result!";
+				datum_blocktemplates_gbt_ok = false;
 				DLOG_ERROR("%s", datum_blocktemplates_error);
+				datum_ws_maybe_broadcast_gateway_info();
 			} else {
 				DLOG_DEBUG("DEBUG: calling datum_gbt_parser (new=%d)", was_notified?1:0);
 				t = datum_gbt_parser(res_val);
 				
 				if (t) {
 					datum_blocktemplates_error = NULL;
+					datum_blocktemplates_gbt_ok = true;
+					datum_ws_maybe_broadcast_gateway_info();
 					DLOG_DEBUG("height: %lu / value: %"PRIu64, (unsigned long)t->height, t->coinbasevalue);
 					DLOG_DEBUG("--- prevhash: %s", t->previousblockhash);
 					DLOG_DEBUG("--- txn_count: %u / sigops: %u / weight: %u / size: %u", t->txn_count, t->txn_total_sigops, t->txn_total_weight, t->txn_total_size);

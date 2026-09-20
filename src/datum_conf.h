@@ -109,7 +109,7 @@ typedef struct {
 	int stratum_v1_listen_port;
 	char stratum_ws_listen_addr[128];
 	int stratum_ws_listen_port;
-	bool stratum_ws_pool_info;
+	bool stratum_ws_gateway_info;
 	int stratum_v1_max_clients;
 	int stratum_v1_max_threads;
 	int stratum_v1_max_clients_per_thread;

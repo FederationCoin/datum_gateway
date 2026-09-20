@@ -52,6 +52,8 @@
 #include "datum_conf.h"
 #include "datum_gateway.h"
 #include "datum_logger.h"
+#include "datum_blocktemplates.h"
+#include "datum_protocol.h"
 #include "datum_sockets.h"
 #include "datum_stratum.h"
 #include "datum_stratum_ws.h"
@@ -623,17 +625,35 @@ void datum_ws_ip_reset(void)
 	pthread_mutex_unlock(&ws_ip_lock);
 }
 
-bool datum_ws_pool_info_rate_ok(uint64_t last_ms, uint64_t now)
+bool datum_ws_gateway_info_rate_ok(uint64_t last_ms, uint64_t now)
 {
 	if (last_ms == 0) {
 		return true;
 	}
-	return now >= last_ms && (now - last_ms) >= DATUM_WS_POOL_INFO_RATE_MS;
+	return now >= last_ms && (now - last_ms) >= DATUM_WS_GATEWAY_INFO_RATE_MS;
 }
 
-int datum_ws_format_pool_info_object(char *buf, size_t buf_sz)
+static pthread_mutex_t gateway_info_pub_lock = PTHREAD_MUTEX_INITIALIZER;
+static char last_gateway_info[2048];
+static bool have_last_gateway_info = false;
+
+static void datum_ws_note_gateway_info_published(const char *obj)
 {
-	json_t *o;
+	if (!obj) {
+		return;
+	}
+	pthread_mutex_lock(&gateway_info_pub_lock);
+	strncpy(last_gateway_info, obj, sizeof(last_gateway_info) - 1);
+	last_gateway_info[sizeof(last_gateway_info) - 1] = 0;
+	have_last_gateway_info = true;
+	pthread_mutex_unlock(&gateway_info_pub_lock);
+}
+
+int datum_ws_format_gateway_info_object_with(char *buf, size_t buf_sz, bool node_healthy, bool prime_configured, bool prime_healthy)
+{
+	json_t *root;
+	json_t *node;
+	json_t *pool;
 	char prime[1100];
 	char *dumped;
 	int n;
@@ -641,21 +661,34 @@ int datum_ws_format_pool_info_object(char *buf, size_t buf_sz)
 	if (!buf || buf_sz < 8) {
 		return -1;
 	}
-	if (datum_config.datum_pool_host[0]) {
-		snprintf(prime, sizeof(prime), "%s:%d", datum_config.datum_pool_host, datum_config.datum_pool_port);
-	} else {
-		prime[0] = 0;
-	}
-	o = json_object();
-	if (!o) {
+	root = json_object();
+	node = json_object();
+	pool = json_object();
+	if (!root || !node || !pool) {
+		if (root) {
+			json_decref(root);
+		}
+		if (node) {
+			json_decref(node);
+		}
+		if (pool) {
+			json_decref(pool);
+		}
 		return -1;
 	}
-	json_object_set_new(o, "prime", json_string(prime));
-	json_object_set_new(o, "name", json_string(datum_config.mining_pool_name));
-	json_object_set_new(o, "coinbaseTag", json_string(datum_config.mining_coinbase_tag_primary));
-	json_object_set_new(o, "websiteUrl", json_string(datum_config.mining_pool_website));
-	dumped = json_dumps(o, JSON_COMPACT);
-	json_decref(o);
+	json_object_set_new(node, "status", json_string(node_healthy ? "healthy" : "not-healthy"));
+	json_object_set_new(pool, "name", json_string(datum_config.mining_pool_name));
+	json_object_set_new(pool, "coinbaseTag", json_string(datum_config.mining_coinbase_tag_primary));
+	json_object_set_new(pool, "websiteUrl", json_string(datum_config.mining_pool_website));
+	if (prime_configured) {
+		snprintf(prime, sizeof(prime), "%s:%d", datum_config.datum_pool_host, datum_config.datum_pool_port);
+		json_object_set_new(pool, "prime", json_string(prime));
+		json_object_set_new(pool, "status", json_string(prime_healthy ? "healthy" : "not-healthy"));
+	}
+	json_object_set_new(root, "node", node);
+	json_object_set_new(root, "pool", pool);
+	dumped = json_dumps(root, JSON_COMPACT);
+	json_decref(root);
 	if (!dumped) {
 		return -1;
 	}
@@ -667,12 +700,19 @@ int datum_ws_format_pool_info_object(char *buf, size_t buf_sz)
 	return 0;
 }
 
-int datum_ws_format_pool_info_result(uint64_t id, char *buf, size_t buf_sz)
+int datum_ws_format_gateway_info_object(char *buf, size_t buf_sz)
 {
-	char obj[1536];
+	const bool node_ok = datum_blocktemplates_gbt_ok && datum_blocktemplates_error == NULL;
+	const bool prime_cfg = datum_config.datum_pool_host[0] != 0;
+	return datum_ws_format_gateway_info_object_with(buf, buf_sz, node_ok, prime_cfg, prime_cfg && datum_protocol_is_active());
+}
+
+int datum_ws_format_gateway_info_result(uint64_t id, char *buf, size_t buf_sz)
+{
+	char obj[2048];
 	int n;
 
-	if (datum_ws_format_pool_info_object(obj, sizeof(obj)) != 0) {
+	if (datum_ws_format_gateway_info_object(obj, sizeof(obj)) != 0) {
 		return -1;
 	}
 	n = snprintf(buf, buf_sz, "{\"id\":%" PRIu64 ",\"error\":null,\"result\":%s}\n", id, obj);
@@ -682,7 +722,7 @@ int datum_ws_format_pool_info_result(uint64_t id, char *buf, size_t buf_sz)
 	return 0;
 }
 
-int datum_ws_format_pool_info_error(uint64_t id, int code, const char *msg, char *buf, size_t buf_sz)
+int datum_ws_format_gateway_info_error(uint64_t id, int code, const char *msg, char *buf, size_t buf_sz)
 {
 	json_t *arr;
 	char *dumped;
@@ -711,73 +751,77 @@ int datum_ws_format_pool_info_error(uint64_t id, int code, const char *msg, char
 	return 0;
 }
 
-int datum_ws_format_pool_info_notify(char *buf, size_t buf_sz)
+int datum_ws_format_gateway_info_notify(char *buf, size_t buf_sz)
 {
-	char obj[1536];
+	char obj[2048];
 	int n;
 
-	if (datum_ws_format_pool_info_object(obj, sizeof(obj)) != 0) {
+	if (datum_ws_format_gateway_info_object(obj, sizeof(obj)) != 0) {
 		return -1;
 	}
-	n = snprintf(buf, buf_sz, "{\"id\":null,\"method\":\"client.pool_info\",\"params\":[%s]}\n", obj);
+	n = snprintf(buf, buf_sz, "{\"id\":null,\"method\":\"client.gateway_info\",\"params\":[%s]}\n", obj);
 	if (n < 0 || (size_t)n >= buf_sz) {
 		return -1;
 	}
 	return 0;
 }
 
-int datum_ws_client_pool_info(T_DATUM_CLIENT_DATA *c, uint64_t id)
+int datum_ws_client_gateway_info(T_DATUM_CLIENT_DATA *c, uint64_t id)
 {
-	char line[2048];
+	char line[2560];
 	uint64_t now;
 
 	if (!c) {
 		return 0;
 	}
 	now = current_time_millis();
-	if (!datum_ws_pool_info_rate_ok(c->ws_pool_info_last_ms, now)) {
-		if (datum_ws_format_pool_info_error(id, 25, "too many requests", line, sizeof(line)) == 0) {
+	if (!datum_ws_gateway_info_rate_ok(c->ws_gateway_info_last_ms, now)) {
+		if (datum_ws_format_gateway_info_error(id, 25, "too many requests", line, sizeof(line)) == 0) {
 			datum_socket_send_string_to_client(c, line);
 		}
 		return 0;
 	}
-	c->ws_pool_info_last_ms = now;
-	if (!datum_config.stratum_ws_pool_info) {
-		if (datum_ws_format_pool_info_error(id, 24, "pool info disabled", line, sizeof(line)) == 0) {
+	c->ws_gateway_info_last_ms = now;
+	if (!datum_config.stratum_ws_gateway_info) {
+		if (datum_ws_format_gateway_info_error(id, 24, "gateway info disabled", line, sizeof(line)) == 0) {
 			datum_socket_send_string_to_client(c, line);
 		}
 		return 0;
 	}
-	if (datum_ws_format_pool_info_result(id, line, sizeof(line)) == 0) {
+	if (datum_ws_format_gateway_info_result(id, line, sizeof(line)) == 0) {
 		datum_socket_send_string_to_client(c, line);
 	}
 	return 0;
 }
 
-void datum_ws_send_pool_info_notify(T_DATUM_CLIENT_DATA *c)
+void datum_ws_send_gateway_info_notify(T_DATUM_CLIENT_DATA *c)
 {
-	char line[2048];
+	char line[2560];
 
-	if (!c || !c->websocket || !datum_config.stratum_ws_pool_info) {
+	if (!c || !c->websocket || !datum_config.stratum_ws_gateway_info) {
 		return;
 	}
-	if (datum_ws_format_pool_info_notify(line, sizeof(line)) == 0) {
+	if (datum_ws_format_gateway_info_notify(line, sizeof(line)) == 0) {
 		datum_socket_send_string_to_client(c, line);
 	}
 }
 
-void datum_ws_broadcast_pool_info(void)
+void datum_ws_broadcast_gateway_info(void)
 {
 	T_DATUM_SOCKET_APP *app = global_stratum_app;
-	char line[2048];
+	char line[2560];
+	char obj[2048];
 	int t;
 	int i;
 
-	if (!datum_config.stratum_ws_pool_info || !app) {
+	if (!datum_config.stratum_ws_gateway_info || !app) {
 		return;
 	}
-	if (datum_ws_format_pool_info_notify(line, sizeof(line)) != 0) {
+	if (datum_ws_format_gateway_info_notify(line, sizeof(line)) != 0) {
 		return;
+	}
+	if (datum_ws_format_gateway_info_object(obj, sizeof(obj)) == 0) {
+		datum_ws_note_gateway_info_published(obj);
 	}
 	for (t = 0; t < app->max_threads; t++) {
 		T_DATUM_THREAD_DATA *th = &app->datum_threads[t];
@@ -789,6 +833,30 @@ void datum_ws_broadcast_pool_info(void)
 			}
 		}
 		pthread_mutex_unlock(&th->thread_data_lock);
+	}
+}
+
+void datum_ws_maybe_broadcast_gateway_info(void)
+{
+	char now[2048];
+	bool same;
+
+	if (!datum_config.stratum_ws_gateway_info) {
+		return;
+	}
+	if (datum_ws_format_gateway_info_object(now, sizeof(now)) != 0) {
+		return;
+	}
+	pthread_mutex_lock(&gateway_info_pub_lock);
+	same = have_last_gateway_info && strcmp(last_gateway_info, now) == 0;
+	if (!same) {
+		strncpy(last_gateway_info, now, sizeof(last_gateway_info) - 1);
+		last_gateway_info[sizeof(last_gateway_info) - 1] = 0;
+		have_last_gateway_info = true;
+	}
+	pthread_mutex_unlock(&gateway_info_pub_lock);
+	if (!same) {
+		datum_ws_broadcast_gateway_info();
 	}
 }
 

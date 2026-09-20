@@ -371,8 +371,8 @@ void datum_stratum_v1_socket_thread_client_new(T_DATUM_CLIENT_DATA *c) {
 		m->connect_tsms = current_time_millis();
 	}
 
-	if (c->websocket && datum_config.stratum_ws_pool_info) {
-		datum_ws_send_pool_info_notify(c);
+	if (c->websocket && datum_config.stratum_ws_gateway_info) {
+		datum_ws_send_gateway_info_notify(c);
 	}
 }
 
@@ -1782,9 +1782,9 @@ int datum_stratum_v1_socket_thread_client_cmd(T_DATUM_CLIENT_DATA *c, char *line
 			[[fallthrough]];
 		}
 		case 'c': {
-			if (!strcmp(method, "client.pool_info")) {
+			if (!strcmp(method, "client.gateway_info")) {
 				if (c->websocket) {
-					i = datum_ws_client_pool_info(c, id);
+					i = datum_ws_client_gateway_info(c, id);
 				} else {
 					send_error_to_client(c, id, "[-3,\"Method not found\",null]");
 					i = 0;

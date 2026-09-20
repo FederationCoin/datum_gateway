@@ -74,6 +74,7 @@
 #include "datum_blocktemplates.h"
 #include "datum_coinbaser.h"
 #include "datum_queue.h"
+#include "datum_stratum_ws.h"
 #include "git_version.h"
 
 atomic_int datum_protocol_client_active = 0;
@@ -1685,6 +1686,7 @@ void *datum_protocol_client(void *args) {
 			case 3: {
 				// we're configured!
 				datum_protocol_client_active = 3;
+				datum_ws_maybe_broadcast_gateway_info();
 				break;
 			}
 			
@@ -1863,6 +1865,7 @@ void *datum_protocol_client(void *args) {
 	close(sockfd);
 	close(epollfd);
 	datum_protocol_client_active = 0;
+	datum_ws_maybe_broadcast_gateway_info();
 	datum_queue_free(&pow_queue);
 	
 	// Wait up to 5 seconds for another thread to reconnect
