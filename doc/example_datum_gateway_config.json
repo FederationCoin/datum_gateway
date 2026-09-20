@@ -9,7 +9,7 @@
 		"listen_addr": "127.0.0.1",
 		"listen_port": 23334,
 		"ws_listen_addr": "127.0.0.1",
-		"ws_listen_port": 23335
+		"ws_listen_port": 0
 	},
 	"mining": {
 		"pool_address": "put your own FederationCoin invoice address here",
