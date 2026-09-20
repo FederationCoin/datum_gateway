@@ -208,6 +208,26 @@ T_DATUM_TEMPLATE_DATA *datum_gbt_parser(json_t *gbt) {
 		return NULL;
 	}
 	
+	{
+		json_t *rules = json_object_get(gbt, "rules");
+		bool have_blake2b = false;
+		size_t ridx;
+		json_t *rval;
+		if (json_is_array(rules)) {
+			json_array_foreach(rules, ridx, rval) {
+				const char *rs = json_string_value(rval);
+				if (rs && strcmp(rs, "!blake2b") == 0) {
+					have_blake2b = true;
+					break;
+				}
+			}
+		}
+		if (!have_blake2b) {
+			DLOG_ERROR("GBT missing !blake2b (need federationcoind with header-v2 / Blake2b)");
+			return NULL;
+		}
+	}
+	
 	jval = json_object_get(gbt, "bits");
 	if (json_string_length(jval) != 8) {
 		DLOG_ERROR("Wrong bits length from GBT JSON");
@@ -446,7 +466,7 @@ void *datum_gateway_template_thread(void *args) {
 		i++;
 		
 		// fetch latest template
-		snprintf(gbt_req, sizeof(gbt_req), "{\"method\":\"getblocktemplate\",\"params\":[{\"rules\":[\"segwit\"]}],\"id\":%"PRIu64"}",(uint64_t)((uint64_t)time(NULL)<<(uint64_t)8)|(uint64_t)(i&255));
+		snprintf(gbt_req, sizeof(gbt_req), "{\"method\":\"getblocktemplate\",\"params\":[{\"rules\":[\"segwit\",\"blake2b\"]}],\"id\":%"PRIu64"}",(uint64_t)((uint64_t)time(NULL)<<(uint64_t)8)|(uint64_t)(i&255));
 		gbt = bitcoind_json_rpc_call(tcurl, &datum_config, gbt_req);
 		
 		if (!gbt) {

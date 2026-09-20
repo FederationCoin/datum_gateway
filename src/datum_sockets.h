@@ -77,6 +77,9 @@ typedef struct T_DATUM_CLIENT_DATA {
 	char rem_host[DATUM_MAX_IP_LEN+1];
 	
 	bool kill_request;
+	bool websocket;
+	int ws_json_len;
+	char ws_json[1024];
 	
 	void *app_client_data;
 	
@@ -171,7 +174,7 @@ void datum_socket_setoptions(int sock);
 int datum_socket_send_string_to_client(T_DATUM_CLIENT_DATA *c, char *s);
 int datum_socket_send_chars_to_client(T_DATUM_CLIENT_DATA *c, char *s, int len);
 
-int assign_to_thread(T_DATUM_SOCKET_APP *app, int fd);
+int assign_to_thread(T_DATUM_SOCKET_APP *app, int fd, bool websocket);
 void *datum_threadpool_thread(void *arg);
 
 static inline void datum_socket_thread_client_count_decrement(T_DATUM_THREAD_DATA *my, int cid_who_left, bool not_already_locked) {

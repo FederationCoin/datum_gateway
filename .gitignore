@@ -10,6 +10,7 @@ datum_gateway
 *.conf
 *.json
 !doc/example_datum_gateway_config.json
+!src/test/block_header_v2.json
 .DS_Store
 *.orig
 *.rej

@@ -63,8 +63,8 @@ USER datumuser
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD nc -zv localhost 23334 || exit 1
 
-# Expose ports
-EXPOSE 23334/tcp 7152/tcp
+# Expose hasher Stratum TCP. Dashboard API stays off (listen_port 0).
+EXPOSE 23334/tcp
 
 # Create a volume for configuration and data
 VOLUME ["/app/config"]

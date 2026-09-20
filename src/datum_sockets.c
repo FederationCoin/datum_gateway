@@ -60,6 +60,7 @@
 #include "datum_protocol.h"
 #include "datum_utils.h"
 #include "datum_sockets.h"
+#include "datum_stratum_ws.h"
 
 int datum_active_threads = 0;
 int datum_active_clients = 0;
@@ -261,9 +262,18 @@ void *datum_threadpool_thread(void *arg) {
 							datum_socket_thread_client_count_decrement(my, cidx, true);
 						}
 					} else {
-						// null terminate the buffer for simplicity
-						// this set of functions is currently only used for stratum v1-like protocols, but can easily be adopted to others.
 						my->client_data[cidx].buffer[my->client_data[cidx].in_buf+n] = 0;
+						my->client_data[cidx].in_buf += n;
+						
+						if (my->client_data[cidx].websocket) {
+							if (datum_ws_client_feed(&my->client_data[cidx]) < 0) {
+								epoll_ctl(my->epollfd, EPOLL_CTL_DEL, my->client_data[cidx].fd, NULL);
+								close(my->client_data[cidx].fd);
+								if (my->app->closed_client_func) my->app->closed_client_func(&my->client_data[cidx], "websocket close");
+								datum_socket_thread_client_count_decrement(my, cidx, true);
+							}
+						} else {
+						my->client_data[cidx].in_buf -= n;
 						
 						char *start_line = my->client_data[cidx].buffer;
 						char *end_line = strchr(start_line, '\n');
@@ -337,6 +347,7 @@ void *datum_threadpool_thread(void *arg) {
 							
 							datum_socket_thread_client_count_decrement(my, cidx, true);
 						}
+						}
 					}
 				}
 				
@@ -397,7 +408,7 @@ void clean_thread_data(T_DATUM_THREAD_DATA *d, T_DATUM_SOCKET_APP *app) {
 	d->app = app;
 }
 
-int assign_to_thread(T_DATUM_SOCKET_APP *app, int fd) {
+int assign_to_thread(T_DATUM_SOCKET_APP *app, int fd, bool websocket) {
 	// Only one thread will be calling this function for a particular "app"
 	// under the current design.  Safe to assume that multiple clients will
 	// not cause overlap here.
@@ -546,6 +557,8 @@ int assign_to_thread(T_DATUM_SOCKET_APP *app, int fd) {
 	app->datum_threads[tid].client_data[cid].datum_thread = (void *)&app->datum_threads[tid];
 	app->datum_threads[tid].client_data[cid].in_buf = 0;
 	app->datum_threads[tid].client_data[cid].out_buf = 0;
+	app->datum_threads[tid].client_data[cid].websocket = websocket;
+	app->datum_threads[tid].client_data[cid].ws_json_len = 0;
 	app->datum_threads[tid].has_new_clients = true;
 	
 	pthread_mutex_unlock(&app->datum_threads[tid].thread_data_lock);
@@ -767,7 +780,7 @@ void *datum_gateway_listener_thread(void *arg) {
 				datum_socket_setoptions(conn_sock);
 				
 				// assign socket to a thread
-				i = assign_to_thread(app, conn_sock);
+				i = assign_to_thread(app, conn_sock, false);
 				if (!i) {
 					// error finding a thread (too many connections?)
 					DLOG_DEBUG("Closing socket we couldn't assign %d", conn_sock);
@@ -805,6 +818,35 @@ void datum_socket_setoptions(int sock) {
 int datum_socket_send_string_to_client(T_DATUM_CLIENT_DATA *c, char *s) {
 	int len = strlen(s);
 	if (!len) return 0;
+	if (c->websocket) {
+		const char *p = s;
+		while (*p) {
+			const char *nl = strchr(p, '\n');
+			size_t chunk;
+			if (!nl) {
+				chunk = strlen(p);
+				if (c->ws_json_len + (int)chunk >= (int)sizeof(c->ws_json)) {
+					return -1;
+				}
+				memcpy(c->ws_json + c->ws_json_len, p, chunk);
+				c->ws_json_len += (int)chunk;
+				return len;
+			}
+			chunk = (size_t)(nl - p + 1);
+			if (c->ws_json_len + (int)chunk >= (int)sizeof(c->ws_json)) {
+				return -1;
+			}
+			memcpy(c->ws_json + c->ws_json_len, p, chunk);
+			c->ws_json_len += (int)chunk;
+			if (datum_ws_queue_text_line(c, c->ws_json, (size_t)c->ws_json_len) < 0) {
+				c->ws_json_len = 0;
+				return -1;
+			}
+			c->ws_json_len = 0;
+			p = nl + 1;
+		}
+		return len;
+	}
 	if ((c->out_buf + len) >= CLIENT_BUFFER) return -1;
 	strncpy(&c->w_buffer[c->out_buf], s, CLIENT_BUFFER-(c->out_buf)-1);
 	c->out_buf += len;

@@ -39,6 +39,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "datum_pow.h"
+
 #ifndef T_DATUM_CLIENT_DATA
 	#include "datum_sockets.h"
 #endif
@@ -147,6 +149,18 @@ typedef struct {
 	int available_coinbase_outputs_count;
 	unsigned char pool_addr_script[64];
 	int pool_addr_script_len;
+	
+	uint8_t hasher_prev_hidden[32];
+	char hasher_prev_hidden_hex[65];
+	uint8_t hasher_ntime8[8];
+	char hasher_ntime8_hex[17];
+	char hasher_version_hex[9];
+	uint8_t hasher_coinb1[MAX_COINBASE_TYPES][DATUM_HASHER_COINB1_SIZE];
+	char hasher_coinb1_hex[MAX_COINBASE_TYPES][DATUM_HASHER_COINB1_SIZE * 2 + 1];
+	uint8_t hasher_coinb1_empty[DATUM_HASHER_COINB1_SIZE];
+	char hasher_coinb1_empty_hex[DATUM_HASHER_COINB1_SIZE * 2 + 1];
+	datum_header_v2_t hasher_hdr[MAX_COINBASE_TYPES];
+	datum_header_v2_t hasher_hdr_empty;
 	
 	// multiple coinbase options
 	// 0 = "empty" --- just pays pool addr, and possibly TIDES data.  extranonce in coinbase if fits, or in first output if not.
@@ -268,6 +282,7 @@ const char *datum_stratum_mod_username(const char *username_s, char *username_bu
 
 int send_mining_notify(T_DATUM_CLIENT_DATA *c, bool clean, bool quickdiff, bool new_block);
 void update_stratum_job(T_DATUM_TEMPLATE_DATA *block_template, bool new_block, int job_state);
+void datum_stratum_job_refresh_hasher(T_DATUM_STRATUM_JOB *s);
 void stratum_job_merkle_root_calc(T_DATUM_STRATUM_JOB *s, unsigned char *coinbase_txn_hash, unsigned char *merkle_root_output);
 int assembleBlockAndSubmit(uint8_t *block_header, uint8_t *coinbase_txn, size_t coinbase_txn_size, T_DATUM_STRATUM_JOB *job, T_DATUM_STRATUM_THREADPOOL_DATA *sdata, const char *block_hash_hex, bool empty_work);
 void generate_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool empty_only);
