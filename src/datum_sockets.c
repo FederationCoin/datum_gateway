@@ -559,6 +559,7 @@ int assign_to_thread(T_DATUM_SOCKET_APP *app, int fd, bool websocket) {
 	app->datum_threads[tid].client_data[cid].out_buf = 0;
 	app->datum_threads[tid].client_data[cid].websocket = websocket;
 	app->datum_threads[tid].client_data[cid].ws_json_len = 0;
+	app->datum_threads[tid].client_data[cid].ws_pool_info_last_ms = 0;
 	app->datum_threads[tid].has_new_clients = true;
 	
 	pthread_mutex_unlock(&app->datum_threads[tid].thread_data_lock);

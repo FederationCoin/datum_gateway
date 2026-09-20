@@ -35,7 +35,9 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <poll.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,6 +47,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <jansson.h>
 
 #include "datum_conf.h"
 #include "datum_gateway.h"
@@ -523,6 +526,272 @@ int datum_ws_client_feed(T_DATUM_CLIENT_DATA *c)
 	return 0;
 }
 
+#define DATUM_WS_IP_SLOTS 256
+
+static pthread_mutex_t ws_ip_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct {
+	char ip[DATUM_MAX_IP_LEN + 1];
+	int n;
+} ws_ip_slots[DATUM_WS_IP_SLOTS];
+
+static const char WS_HTTP_429[] =
+	"HTTP/1.1 429 Too Many Requests\r\n"
+	"Connection: close\r\n"
+	"Content-Length: 0\r\n"
+	"\r\n";
+
+const char *datum_ws_http_429(void)
+{
+	return WS_HTTP_429;
+}
+
+static void ws_ip_key(const char *ip, char *out, size_t out_sz)
+{
+	if (!ip || !ip[0]) {
+		strncpy(out, "0.0.0.0", out_sz - 1);
+		out[out_sz - 1] = 0;
+		return;
+	}
+	strncpy(out, ip, out_sz - 1);
+	out[out_sz - 1] = 0;
+}
+
+int datum_ws_ip_acquire(const char *ip)
+{
+	char key[DATUM_MAX_IP_LEN + 1];
+	int empty = -1;
+	int found = -1;
+	int i;
+	int ok = 0;
+
+	ws_ip_key(ip, key, sizeof(key));
+	pthread_mutex_lock(&ws_ip_lock);
+	for (i = 0; i < DATUM_WS_IP_SLOTS; i++) {
+		if (ws_ip_slots[i].n <= 0) {
+			if (empty < 0) {
+				empty = i;
+			}
+			continue;
+		}
+		if (strcmp(ws_ip_slots[i].ip, key) == 0) {
+			found = i;
+			break;
+		}
+	}
+	if (found >= 0) {
+		if (ws_ip_slots[found].n < DATUM_WS_MAX_PER_IP) {
+			ws_ip_slots[found].n++;
+			ok = 1;
+		}
+	} else if (empty >= 0) {
+		strncpy(ws_ip_slots[empty].ip, key, DATUM_MAX_IP_LEN);
+		ws_ip_slots[empty].ip[DATUM_MAX_IP_LEN] = 0;
+		ws_ip_slots[empty].n = 1;
+		ok = 1;
+	}
+	pthread_mutex_unlock(&ws_ip_lock);
+	return ok;
+}
+
+void datum_ws_ip_release(const char *ip)
+{
+	char key[DATUM_MAX_IP_LEN + 1];
+	int i;
+
+	if (!ip) {
+		return;
+	}
+	ws_ip_key(ip, key, sizeof(key));
+	pthread_mutex_lock(&ws_ip_lock);
+	for (i = 0; i < DATUM_WS_IP_SLOTS; i++) {
+		if (ws_ip_slots[i].n > 0 && strcmp(ws_ip_slots[i].ip, key) == 0) {
+			ws_ip_slots[i].n--;
+			if (ws_ip_slots[i].n <= 0) {
+				ws_ip_slots[i].n = 0;
+				ws_ip_slots[i].ip[0] = 0;
+			}
+			break;
+		}
+	}
+	pthread_mutex_unlock(&ws_ip_lock);
+}
+
+void datum_ws_ip_reset(void)
+{
+	pthread_mutex_lock(&ws_ip_lock);
+	memset(ws_ip_slots, 0, sizeof(ws_ip_slots));
+	pthread_mutex_unlock(&ws_ip_lock);
+}
+
+bool datum_ws_pool_info_rate_ok(uint64_t last_ms, uint64_t now)
+{
+	if (last_ms == 0) {
+		return true;
+	}
+	return now >= last_ms && (now - last_ms) >= DATUM_WS_POOL_INFO_RATE_MS;
+}
+
+int datum_ws_format_pool_info_object(char *buf, size_t buf_sz)
+{
+	json_t *o;
+	char prime[1100];
+	char *dumped;
+	int n;
+
+	if (!buf || buf_sz < 8) {
+		return -1;
+	}
+	if (datum_config.datum_pool_host[0]) {
+		snprintf(prime, sizeof(prime), "%s:%d", datum_config.datum_pool_host, datum_config.datum_pool_port);
+	} else {
+		prime[0] = 0;
+	}
+	o = json_object();
+	if (!o) {
+		return -1;
+	}
+	json_object_set_new(o, "prime", json_string(prime));
+	json_object_set_new(o, "name", json_string(datum_config.mining_pool_name));
+	json_object_set_new(o, "coinbaseTag", json_string(datum_config.mining_coinbase_tag_primary));
+	json_object_set_new(o, "websiteUrl", json_string(datum_config.mining_pool_website));
+	dumped = json_dumps(o, JSON_COMPACT);
+	json_decref(o);
+	if (!dumped) {
+		return -1;
+	}
+	n = snprintf(buf, buf_sz, "%s", dumped);
+	free(dumped);
+	if (n < 0 || (size_t)n >= buf_sz) {
+		return -1;
+	}
+	return 0;
+}
+
+int datum_ws_format_pool_info_result(uint64_t id, char *buf, size_t buf_sz)
+{
+	char obj[1536];
+	int n;
+
+	if (datum_ws_format_pool_info_object(obj, sizeof(obj)) != 0) {
+		return -1;
+	}
+	n = snprintf(buf, buf_sz, "{\"id\":%" PRIu64 ",\"error\":null,\"result\":%s}\n", id, obj);
+	if (n < 0 || (size_t)n >= buf_sz) {
+		return -1;
+	}
+	return 0;
+}
+
+int datum_ws_format_pool_info_error(uint64_t id, int code, const char *msg, char *buf, size_t buf_sz)
+{
+	json_t *arr;
+	char *dumped;
+	int n;
+
+	if (!msg) {
+		msg = "";
+	}
+	arr = json_array();
+	if (!arr) {
+		return -1;
+	}
+	json_array_append_new(arr, json_integer(code));
+	json_array_append_new(arr, json_string(msg));
+	json_array_append_new(arr, json_null());
+	dumped = json_dumps(arr, JSON_COMPACT);
+	json_decref(arr);
+	if (!dumped) {
+		return -1;
+	}
+	n = snprintf(buf, buf_sz, "{\"error\":%s,\"id\":%" PRIu64 ",\"result\":null}\n", dumped, id);
+	free(dumped);
+	if (n < 0 || (size_t)n >= buf_sz) {
+		return -1;
+	}
+	return 0;
+}
+
+int datum_ws_format_pool_info_notify(char *buf, size_t buf_sz)
+{
+	char obj[1536];
+	int n;
+
+	if (datum_ws_format_pool_info_object(obj, sizeof(obj)) != 0) {
+		return -1;
+	}
+	n = snprintf(buf, buf_sz, "{\"id\":null,\"method\":\"client.pool_info\",\"params\":[%s]}\n", obj);
+	if (n < 0 || (size_t)n >= buf_sz) {
+		return -1;
+	}
+	return 0;
+}
+
+int datum_ws_client_pool_info(T_DATUM_CLIENT_DATA *c, uint64_t id)
+{
+	char line[2048];
+	uint64_t now;
+
+	if (!c) {
+		return 0;
+	}
+	now = current_time_millis();
+	if (!datum_ws_pool_info_rate_ok(c->ws_pool_info_last_ms, now)) {
+		if (datum_ws_format_pool_info_error(id, 25, "too many requests", line, sizeof(line)) == 0) {
+			datum_socket_send_string_to_client(c, line);
+		}
+		return 0;
+	}
+	c->ws_pool_info_last_ms = now;
+	if (!datum_config.stratum_ws_pool_info) {
+		if (datum_ws_format_pool_info_error(id, 24, "pool info disabled", line, sizeof(line)) == 0) {
+			datum_socket_send_string_to_client(c, line);
+		}
+		return 0;
+	}
+	if (datum_ws_format_pool_info_result(id, line, sizeof(line)) == 0) {
+		datum_socket_send_string_to_client(c, line);
+	}
+	return 0;
+}
+
+void datum_ws_send_pool_info_notify(T_DATUM_CLIENT_DATA *c)
+{
+	char line[2048];
+
+	if (!c || !c->websocket || !datum_config.stratum_ws_pool_info) {
+		return;
+	}
+	if (datum_ws_format_pool_info_notify(line, sizeof(line)) == 0) {
+		datum_socket_send_string_to_client(c, line);
+	}
+}
+
+void datum_ws_broadcast_pool_info(void)
+{
+	T_DATUM_SOCKET_APP *app = global_stratum_app;
+	char line[2048];
+	int t;
+	int i;
+
+	if (!datum_config.stratum_ws_pool_info || !app) {
+		return;
+	}
+	if (datum_ws_format_pool_info_notify(line, sizeof(line)) != 0) {
+		return;
+	}
+	for (t = 0; t < app->max_threads; t++) {
+		T_DATUM_THREAD_DATA *th = &app->datum_threads[t];
+		pthread_mutex_lock(&th->thread_data_lock);
+		for (i = 0; i < app->max_clients_thread; i++) {
+			T_DATUM_CLIENT_DATA *c = &th->client_data[i];
+			if (c->fd && c->websocket) {
+				datum_socket_send_string_to_client(c, line);
+			}
+		}
+		pthread_mutex_unlock(&th->thread_data_lock);
+	}
+}
+
 void *datum_stratum_ws_server(void *arg)
 {
 	int listen_socks[2] = { -1, -1 };
@@ -581,13 +850,25 @@ void *datum_stratum_ws_server(void *arg)
 			if (conn_sock < 0) {
 				continue;
 			}
-			if (datum_ws_handshake_server(conn_sock) != 0) {
-				close(conn_sock);
-				continue;
-			}
-			datum_socket_setoptions(conn_sock);
-			if (!assign_to_thread(global_stratum_app, conn_sock, true)) {
-				close(conn_sock);
+			{
+				char ip[DATUM_MAX_IP_LEN + 1];
+				memset(ip, 0, sizeof(ip));
+				get_remote_ip(conn_sock, ip, DATUM_MAX_IP_LEN);
+				if (!datum_ws_ip_acquire(ip)) {
+					(void)send(conn_sock, WS_HTTP_429, strlen(WS_HTTP_429), 0);
+					close(conn_sock);
+					continue;
+				}
+				if (datum_ws_handshake_server(conn_sock) != 0) {
+					datum_ws_ip_release(ip);
+					close(conn_sock);
+					continue;
+				}
+				datum_socket_setoptions(conn_sock);
+				if (!assign_to_thread(global_stratum_app, conn_sock, true)) {
+					datum_ws_ip_release(ip);
+					close(conn_sock);
+				}
 			}
 		}
 	}

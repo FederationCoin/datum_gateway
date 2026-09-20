@@ -405,9 +405,89 @@ static void datum_stratum_ws_rpc_test(void)
 	datum_test(s.fail == 0);
 }
 
+static void datum_stratum_ws_pool_info_tests(void)
+{
+	char buf[2048];
+	json_error_t err;
+	json_t *j;
+	json_t *result;
+	int i;
+
+	datum_config.stratum_ws_pool_info = true;
+	memset(datum_config.datum_pool_host, 0, sizeof(datum_config.datum_pool_host));
+	strcpy(datum_config.datum_pool_host, "prime.example");
+	datum_config.datum_pool_port = 28916;
+	memset(datum_config.mining_pool_name, 0, sizeof(datum_config.mining_pool_name));
+	strcpy(datum_config.mining_pool_name, "House");
+	memset(datum_config.mining_coinbase_tag_primary, 0, sizeof(datum_config.mining_coinbase_tag_primary));
+	strcpy(datum_config.mining_coinbase_tag_primary, "TAG");
+	memset(datum_config.mining_pool_website, 0, sizeof(datum_config.mining_pool_website));
+	strcpy(datum_config.mining_pool_website, "https://ex.example");
+
+	datum_test(datum_ws_format_pool_info_result(9, buf, sizeof(buf)) == 0);
+	j = json_loads(buf, 0, &err);
+	datum_test(j != NULL);
+	if (j) {
+		datum_test(json_integer_value(json_object_get(j, "id")) == 9);
+		datum_test(json_is_null(json_object_get(j, "error")));
+		result = json_object_get(j, "result");
+		datum_test(json_is_object(result));
+		datum_test(strcmp(json_string_value(json_object_get(result, "prime")), "prime.example:28916") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(result, "name")), "House") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(result, "coinbaseTag")), "TAG") == 0);
+		datum_test(strcmp(json_string_value(json_object_get(result, "websiteUrl")), "https://ex.example") == 0);
+		json_decref(j);
+	}
+
+	datum_config.datum_pool_host[0] = 0;
+	datum_test(datum_ws_format_pool_info_object(buf, sizeof(buf)) == 0);
+	j = json_loads(buf, 0, &err);
+	datum_test(j != NULL);
+	if (j) {
+		datum_test(json_string_value(json_object_get(j, "prime")) && json_string_value(json_object_get(j, "prime"))[0] == 0);
+		json_decref(j);
+	}
+
+	datum_test(datum_ws_format_pool_info_error(9, 24, "pool info disabled", buf, sizeof(buf)) == 0);
+	j = json_loads(buf, 0, &err);
+	datum_test(j != NULL);
+	if (j) {
+		json_t *e = json_object_get(j, "error");
+		datum_test(json_is_array(e) && json_integer_value(json_array_get(e, 0)) == 24);
+		datum_test(strcmp(json_string_value(json_array_get(e, 1)), "pool info disabled") == 0);
+		json_decref(j);
+	}
+
+	datum_test(datum_ws_format_pool_info_notify(buf, sizeof(buf)) == 0);
+	j = json_loads(buf, 0, &err);
+	datum_test(j != NULL);
+	if (j) {
+		datum_test(json_is_null(json_object_get(j, "id")));
+		datum_test(strcmp(json_string_value(json_object_get(j, "method")), "client.pool_info") == 0);
+		json_decref(j);
+	}
+
+	datum_test(datum_ws_pool_info_rate_ok(0, 1000));
+	datum_test(!datum_ws_pool_info_rate_ok(1000, 5999));
+	datum_test(datum_ws_pool_info_rate_ok(1000, 6000));
+
+	datum_test(strstr(datum_ws_http_429(), "429") != NULL);
+
+	datum_ws_ip_reset();
+	for (i = 0; i < DATUM_WS_MAX_PER_IP; i++) {
+		datum_test(datum_ws_ip_acquire("127.0.0.1") == 1);
+	}
+	datum_test(datum_ws_ip_acquire("127.0.0.1") == 0);
+	datum_ws_ip_release("127.0.0.1");
+	datum_test(datum_ws_ip_acquire("127.0.0.1") == 1);
+	datum_test(datum_ws_ip_acquire("10.0.0.2") == 1);
+	datum_ws_ip_reset();
+}
+
 void datum_stratum_ws_tests(void)
 {
 	datum_stratum_ws_accept_key_test();
 	datum_stratum_ws_port0_test();
 	datum_stratum_ws_rpc_test();
+	datum_stratum_ws_pool_info_tests();
 }
