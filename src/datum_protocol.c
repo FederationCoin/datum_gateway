@@ -1862,20 +1862,21 @@ void *datum_protocol_client(void *args) {
 					}
 					
 					if (server_in_buf == s_header.cmd_len) {
-						if (identity_frame) {
-							if (s_header.cmd_len == DATUM_PROTOCOL_IDENTITY_SIZE) {
-								if ((memcmp(server_recv_buffer, pool_keys.pk_ed25519, crypto_sign_PUBLICKEYBYTES) != 0) ||
-								    (memcmp(server_recv_buffer + crypto_sign_PUBLICKEYBYTES, pool_keys.pk_x25519, crypto_box_PUBLICKEYBYTES) != 0)) {
-									DLOG_WARN("DATUM Prime identity keys do not match configured pool_pubkey.");
-								} else {
-									DLOG_INFO("DATUM Prime identity frame received.");
+							if (identity_frame) {
+								const keysMatch = s_header.cmd_len == DATUM_PROTOCOL_IDENTITY_SIZE
+									&& memcmp(server_recv_buffer, pool_keys.pk_ed25519, crypto_sign_PUBLICKEYBYTES) == 0
+									&& memcmp(server_recv_buffer + crypto_sign_PUBLICKEYBYTES, pool_keys.pk_x25519, crypto_box_PUBLICKEYBYTES) == 0;
+								if (!keysMatch) {
+									DLOG_ERROR("DATUM Prime identity keys do not match configured pool_pubkey.");
+									break_again = true;
+									break;
 								}
+								DLOG_INFO("DATUM Prime identity frame received.");
+								identity_frame = false;
+								protocol_state = 0;
+								server_in_buf = 0;
+								continue;
 							}
-							identity_frame = false;
-							protocol_state = 0;
-							server_in_buf = 0;
-							continue;
-						}
 						n = datum_protocol_server_msg(&s_header, server_recv_buffer);
 						if (n < 0) {
 							DLOG_DEBUG("datum_protocol_server_msg returned %d",n);
