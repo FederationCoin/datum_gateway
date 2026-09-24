@@ -74,6 +74,7 @@
 #include "datum_blocktemplates.h"
 #include "datum_coinbaser.h"
 #include "datum_queue.h"
+#include "datum_stratum_ws.h"
 #include "git_version.h"
 
 atomic_int datum_protocol_client_active = 0;
@@ -94,7 +95,7 @@ int protocol_state = 0;
 unsigned char server_send_buffer[DATUM_PROTOCOL_BUFFER_SIZE];
 unsigned char server_recv_buffer[DATUM_PROTOCOL_BUFFER_SIZE];
 
-uint32_t sending_header_key = 0xDC871829; // initial send header key ... changed by handshake function
+uint32_t sending_header_key = DATUM_PROTOCOL_INITIAL_HEADER_XOR; // initial send header key ... changed by handshake function
 uint32_t receiving_header_key = 0; // set by handshake function
 
 unsigned char session_nonce_sender[crypto_box_NONCEBYTES];
@@ -153,6 +154,27 @@ unsigned char datum_protocol_setup_new_job_idx(void *sx) {
 
 static inline void datum_xor_header_key(void *h, uint32_t key) {
 	*((uint32_t *)h) ^= key;
+}
+
+bool datum_protocol_decode_identity_header(T_DATUM_PROTOCOL_HEADER *h) {
+	T_DATUM_PROTOCOL_HEADER ident;
+	
+	if (!h) {
+		return false;
+	}
+	ident = *h;
+	datum_xor_header_key(&ident, DATUM_PROTOCOL_INITIAL_HEADER_XOR);
+	if (ident.proto_cmd != DATUM_PROTOCOL_IDENTITY_CMD) {
+		return false;
+	}
+	if (ident.cmd_len != DATUM_PROTOCOL_IDENTITY_SIZE) {
+		return false;
+	}
+	if (ident.reserved || ident.is_signed || ident.is_encrypted_pubkey || ident.is_encrypted_channel) {
+		return false;
+	}
+	*h = ident;
+	return true;
 }
 
 uint32_t datum_header_xor_feedback(const uint32_t i) {
@@ -1481,6 +1503,7 @@ void *datum_protocol_client(void *args) {
 	hints.ai_socktype = SOCK_STREAM;
 	char port_str[7];  // To hold the port number as a string
 	bool break_again = false;
+	bool identity_frame = false;
 	int sent = 0;
 	T_DATUM_PROTOCOL_HEADER s_header;
 	
@@ -1496,7 +1519,7 @@ void *datum_protocol_client(void *args) {
 	}
 	pthread_rwlock_unlock(&datum_jobs_rwlock);
 	pthread_mutex_lock(&datum_protocol_send_buffer_lock);
-	sending_header_key = 0xDC871829;
+	sending_header_key = DATUM_PROTOCOL_INITIAL_HEADER_XOR;
 	receiving_header_key = 0;
 	protocol_state = 0;
 	server_out_buf = 0;
@@ -1685,6 +1708,7 @@ void *datum_protocol_client(void *args) {
 			case 3: {
 				// we're configured!
 				datum_protocol_client_active = 3;
+				datum_ws_maybe_broadcast_gateway_info();
 				break;
 			}
 			
@@ -1775,9 +1799,13 @@ void *datum_protocol_client(void *args) {
 				}
 				
 				case 4: {
-					datum_xor_header_key(&s_header, receiving_header_key);
-					//DLOG_DEBUG("Server CMD: cmd=%u, len=%u, raw = %8.8x ... rkey = %8.8x", s_header.proto_cmd, s_header.cmd_len, upk_u32le(s_header, 0), receiving_header_key);
-					receiving_header_key = datum_header_xor_feedback(receiving_header_key);
+					identity_frame = false;
+					if (datum_state < 2 && datum_protocol_decode_identity_header(&s_header)) {
+						identity_frame = true;
+					} else {
+						datum_xor_header_key(&s_header, receiving_header_key);
+						receiving_header_key = datum_header_xor_feedback(receiving_header_key);
+					}
 					protocol_state = 5;
 					server_in_buf = 0;
 					if (!s_header.cmd_len) {
@@ -1834,6 +1862,21 @@ void *datum_protocol_client(void *args) {
 					}
 					
 					if (server_in_buf == s_header.cmd_len) {
+							if (identity_frame) {
+								const bool keysMatch = s_header.cmd_len == DATUM_PROTOCOL_IDENTITY_SIZE
+									&& memcmp(server_recv_buffer, pool_keys.pk_ed25519, crypto_sign_PUBLICKEYBYTES) == 0
+									&& memcmp(server_recv_buffer + crypto_sign_PUBLICKEYBYTES, pool_keys.pk_x25519, crypto_box_PUBLICKEYBYTES) == 0;
+								if (!keysMatch) {
+									DLOG_ERROR("DATUM Prime identity keys do not match configured pool_pubkey.");
+									break_again = true;
+									break;
+								}
+								DLOG_INFO("DATUM Prime identity frame received.");
+								identity_frame = false;
+								protocol_state = 0;
+								server_in_buf = 0;
+								continue;
+							}
 						n = datum_protocol_server_msg(&s_header, server_recv_buffer);
 						if (n < 0) {
 							DLOG_DEBUG("datum_protocol_server_msg returned %d",n);
@@ -1863,6 +1906,7 @@ void *datum_protocol_client(void *args) {
 	close(sockfd);
 	close(epollfd);
 	datum_protocol_client_active = 0;
+	datum_ws_maybe_broadcast_gateway_info();
 	datum_queue_free(&pow_queue);
 	
 	// Wait up to 5 seconds for another thread to reconnect

@@ -40,6 +40,7 @@
 	#include "datum_blocktemplates.h"
 #endif
 
+#include <stddef.h>
 #include <stdint.h>
 #include <sys/epoll.h>
 #include <pthread.h>
@@ -80,6 +81,7 @@ typedef struct T_DATUM_CLIENT_DATA {
 	bool websocket;
 	int ws_json_len;
 	char ws_json[1024];
+	uint64_t ws_gateway_info_last_ms;
 	
 	void *app_client_data;
 	
@@ -174,6 +176,7 @@ void datum_socket_setoptions(int sock);
 int datum_socket_send_string_to_client(T_DATUM_CLIENT_DATA *c, char *s);
 int datum_socket_send_chars_to_client(T_DATUM_CLIENT_DATA *c, char *s, int len);
 
+int get_remote_ip(int fd, char *ip, size_t max_len);
 int assign_to_thread(T_DATUM_SOCKET_APP *app, int fd, bool websocket);
 void *datum_threadpool_thread(void *arg);
 

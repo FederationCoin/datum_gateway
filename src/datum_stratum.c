@@ -59,6 +59,7 @@
 #include "datum_submitblock.h"
 #include "datum_protocol.h"
 #include "datum_pow.h"
+#include "datum_stratum_ws.h"
 
 T_DATUM_SOCKET_APP *global_stratum_app = NULL;
 
@@ -343,6 +344,9 @@ double datum_stratum_v1_est_total_th_sec(void) {
 }
 
 void datum_stratum_v1_socket_thread_client_closed(T_DATUM_CLIENT_DATA *c, const char *msg) {
+	if (c->websocket) {
+		datum_ws_ip_release(c->rem_host);
+	}
 	DLOG_DEBUG("Stratum client connection closed. (%s)", msg);
 }
 
@@ -365,6 +369,10 @@ void datum_stratum_v1_socket_thread_client_new(T_DATUM_CLIENT_DATA *c) {
 		m->connect_tsms = m->sdata->loop_tsms;
 	} else {
 		m->connect_tsms = current_time_millis();
+	}
+
+	if (c->websocket && datum_config.stratum_ws_gateway_info) {
+		datum_ws_send_gateway_info_notify(c);
 	}
 }
 
@@ -1768,6 +1776,19 @@ int datum_stratum_v1_socket_thread_client_cmd(T_DATUM_CLIENT_DATA *c, char *line
 			}
 			if (!strcmp(method, "mining.authorize")) {
 				i = client_mining_authorize(c, id, params_obj);
+				json_decref(j);
+				return i;
+			}
+			[[fallthrough]];
+		}
+		case 'c': {
+			if (!strcmp(method, "client.gateway_info")) {
+				if (c->websocket) {
+					i = datum_ws_client_gateway_info(c, id);
+				} else {
+					send_error_to_client(c, id, "[-3,\"Method not found\",null]");
+					i = 0;
+				}
 				json_decref(j);
 				return i;
 			}

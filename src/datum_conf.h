@@ -109,6 +109,7 @@ typedef struct {
 	int stratum_v1_listen_port;
 	char stratum_ws_listen_addr[128];
 	int stratum_ws_listen_port;
+	bool stratum_ws_gateway_info;
 	int stratum_v1_max_clients;
 	int stratum_v1_max_threads;
 	int stratum_v1_max_clients_per_thread;
@@ -129,6 +130,8 @@ typedef struct {
 	char mining_pool_address[256];
 	char mining_coinbase_tag_primary[64];
 	char mining_coinbase_tag_secondary[64];
+	char mining_pool_name[128];
+	char mining_pool_website[256];
 	char mining_save_submitblocks_dir[256];
 	int coinbase_unique_id;
 	
