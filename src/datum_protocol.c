@@ -1863,7 +1863,7 @@ void *datum_protocol_client(void *args) {
 					
 					if (server_in_buf == s_header.cmd_len) {
 							if (identity_frame) {
-								const keysMatch = s_header.cmd_len == DATUM_PROTOCOL_IDENTITY_SIZE
+								const bool keysMatch = s_header.cmd_len == DATUM_PROTOCOL_IDENTITY_SIZE
 									&& memcmp(server_recv_buffer, pool_keys.pk_ed25519, crypto_sign_PUBLICKEYBYTES) == 0
 									&& memcmp(server_recv_buffer + crypto_sign_PUBLICKEYBYTES, pool_keys.pk_x25519, crypto_box_PUBLICKEYBYTES) == 0;
 								if (!keysMatch) {
