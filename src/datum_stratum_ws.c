@@ -209,7 +209,7 @@ static int ws_encode(uint8_t opcode, const uint8_t *payload, size_t n, int maske
 			for (i = 0; i < n; ++i) {
 				out[6 + i] = (uint8_t)(payload[i] ^ mask[i & 3]);
 			}
-		} else {
+		} else if (n > 0) {
 			memcpy(out + 2, payload, n);
 		}
 		return (int)(hdr + n);
@@ -222,7 +222,7 @@ static int ws_encode(uint8_t opcode, const uint8_t *payload, size_t n, int maske
 		for (i = 0; i < n; ++i) {
 			out[8 + i] = (uint8_t)(payload[i] ^ mask[i & 3]);
 		}
-	} else {
+	} else if (n > 0) {
 		memcpy(out + 4, payload, n);
 	}
 	return (int)(hdr + n);
