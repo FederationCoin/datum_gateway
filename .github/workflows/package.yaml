@@ -83,7 +83,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install --quiet python@3 || brew link --overwrite python@3
-          brew install --quiet cmake ninja pkgconf curl jansson libsodium epoll-shim
+          brew install --quiet cmake ninja pkgconf curl jansson libsodium epoll-shim argp-standalone
       - name: Build unsigned daemon
         run: |
           set -euo pipefail

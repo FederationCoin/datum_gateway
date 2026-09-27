@@ -86,17 +86,40 @@ if(LIBM)
 endif()
 
 set(ARGP_LIBS "")
+set(ARGP_INCLUDE_DIRS "")
 check_function_exists(argp_parse HAVE_ARGP_PARSE)
 if(NOT HAVE_ARGP_PARSE)
-	check_library_exists(argp argp_parse "" ARGP)
-	if(NOT ARGP AND CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
-		# Workaround bug where CMake doesn't check the standard install location on FreeBSD
-		unset(ARGP CACHE)
-		check_library_exists(argp argp_parse "/usr/local/lib" ARGP)
+	# glibc provides argp. macOS needs Homebrew argp-standalone, whose
+	# header is not on the default compiler search path.
+	find_path(ARGP_INCLUDE_DIR NAMES argp.h
+		HINTS /usr/local/include /opt/homebrew/include /opt/local/include)
+	find_library(ARGP_LIBRARY NAMES argp
+		HINTS /usr/local/lib /opt/homebrew/lib /opt/local/lib)
+	if((NOT ARGP_INCLUDE_DIR OR NOT ARGP_LIBRARY) AND NOT CMAKE_CROSSCOMPILING)
+		find_program(BREW_EXECUTABLE brew)
+		if(BREW_EXECUTABLE)
+			execute_process(
+				COMMAND "${BREW_EXECUTABLE}" --prefix argp-standalone
+				OUTPUT_VARIABLE ARGP_BREW_PREFIX
+				OUTPUT_STRIP_TRAILING_WHITESPACE
+				ERROR_QUIET
+				RESULT_VARIABLE ARGP_BREW_RESULT
+			)
+			if(ARGP_BREW_RESULT EQUAL 0 AND NOT "${ARGP_BREW_PREFIX}" STREQUAL "")
+				unset(ARGP_INCLUDE_DIR CACHE)
+				unset(ARGP_LIBRARY CACHE)
+				find_path(ARGP_INCLUDE_DIR NAMES argp.h
+					HINTS "${ARGP_BREW_PREFIX}/include" NO_DEFAULT_PATH)
+				find_library(ARGP_LIBRARY NAMES argp
+					HINTS "${ARGP_BREW_PREFIX}/lib" NO_DEFAULT_PATH)
+			endif()
+		endif()
 	endif()
-	if(ARGP)
-		list(APPEND ARGP_LIBS "argp")
+	if(NOT ARGP_INCLUDE_DIR OR NOT ARGP_LIBRARY)
+		message(FATAL_ERROR "argp is required. On macOS: brew install argp-standalone")
 	endif()
+	set(ARGP_INCLUDE_DIRS "${ARGP_INCLUDE_DIR}")
+	list(APPEND ARGP_LIBS "${ARGP_LIBRARY}")
 endif()
 
 check_function_exists(epoll_wait HAVE_EPOLL_WAIT)
@@ -129,6 +152,7 @@ target_include_directories(datum_gateway
 	PRIVATE
 	$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>
 	${EPOLL_SHIM_INCLUDE_DIRS}
+	${ARGP_INCLUDE_DIRS}
 	${CURL_INCLUDE_DIRS}
 	${JANSSON_INCLUDE_DIRS}
 	${SODIUM_INCLUDE_DIRS}
