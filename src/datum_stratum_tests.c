@@ -69,8 +69,8 @@ void datum_stratum_mod_username_tests() {
 	memset(buf, 0, 5);
 	res = datum_stratum_mod_username(s, buf, sizeof(buf), 0x4ccc, modname, 1);
 	datum_test(0 == strcmp(res, "addrA"));
-	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x4ccd, modname, 1) == pool_addr);
-	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0xffff, modname, 1) == pool_addr);
+	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x4ccd, modname, 1) == s);
+	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0xffff, modname, 1) == s);
 	
 	s = "def~abc";
 	modname = &s[4];
@@ -92,8 +92,8 @@ void datum_stratum_mod_username_tests() {
 	memset(buf, 0, 5);
 	res = datum_stratum_mod_username(s, buf, sizeof(buf), 0x9999, modname, 3);
 	datum_test(0 == strcmp(res, a2));
-	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x999a, modname, 3) == pool_addr);
-	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0xffff, modname, 3) == pool_addr);
+	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x999a, modname, 3) == s);
+	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0xffff, modname, 3) == s);
 	
 	s = "def.ghi~abc";
 	modname = &s[8];
@@ -112,8 +112,8 @@ void datum_stratum_mod_username_tests() {
 	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x9999, modname, 3) == buf);
 	datum_test(0 == strncmp(buf, a2, 5));
 	datum_test(0 == strcmp(&buf[5], ".ghi"));
-	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x999a, modname, 3) == pool_addr);
-	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0xffff, modname, 3) == pool_addr);
+	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x999a, modname, 3) == s);
+	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0xffff, modname, 3) == s);
 	
 	s = "def.ghi~:)";
 	modname = &s[8];
@@ -122,8 +122,8 @@ void datum_stratum_mod_username_tests() {
 	memset(buf, 0, 7);
 	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x7fff, modname, 2) == buf);
 	datum_test(0 == strcmp(buf, "def.ghi"));
-	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x8000, modname, 2) == pool_addr);
-	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0xffff, modname, 2) == pool_addr);
+	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0x8000, modname, 2) == s);
+	datum_test(datum_stratum_mod_username(s, buf, sizeof(buf), 0xffff, modname, 2) == s);
 	
 	// Intentionally overflow buf with address: we lose the worker name, but get the full address via its umod buffer
 	s = "def.ghi~x";
@@ -136,8 +136,8 @@ void datum_stratum_mod_username_tests() {
 	datum_test(0 == strcmp(res, "addrA"));
 	res = datum_stratum_mod_username(s, buf, 2, 0x4ccc, modname, 1);
 	datum_test(0 == strcmp(res, "addrA"));
-	datum_test(datum_stratum_mod_username(s, buf, 2, 0x4ccd, modname, 1) == pool_addr);
-	datum_test(datum_stratum_mod_username(s, buf, 2, 0xffff, modname, 1) == pool_addr);
+	datum_test(datum_stratum_mod_username(s, buf, 2, 0x4ccd, modname, 1) == s);
+	datum_test(datum_stratum_mod_username(s, buf, 2, 0xffff, modname, 1) == s);
 	datum_test(buf[2] == 0x0e);
 	datum_test(buf[6] == 0x0e);
 	res = datum_stratum_mod_username(s, buf, 6, 0, modname, 1);
@@ -178,6 +178,46 @@ void datum_stratum_mod_username_tests() {
 	datum_test(0 == strcmp(res, "def.ghi"));
 }
 
+int client_mining_authorize(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj);
+
+void datum_stratum_authorize_tests(void) {
+	T_DATUM_CLIENT_DATA c;
+	T_DATUM_MINER_DATA m;
+	json_t *params;
+	const char *addr = "tgfcn1qgcp5pd4f0nv3xzejj5psst6e5njdw6ll0gls8t.cpu";
+
+	memset(&c, 0, sizeof(c));
+	memset(&m, 0, sizeof(m));
+	c.app_client_data = &m;
+
+	params = json_array();
+	json_array_append_new(params, json_string(""));
+	datum_test(client_mining_authorize(&c, 1, params) == 0);
+	json_decref(params);
+	datum_test(!m.authorized);
+	datum_test(strstr(c.w_buffer, "worker is empty") != NULL);
+
+	c.out_buf = 0;
+	memset(c.w_buffer, 0, sizeof(c.w_buffer));
+	params = json_array();
+	json_array_append_new(params, json_string("not-an-address"));
+	datum_test(client_mining_authorize(&c, 2, params) == 0);
+	json_decref(params);
+	datum_test(!m.authorized);
+	datum_test(strstr(c.w_buffer, "worker address is not valid") != NULL);
+
+	c.out_buf = 0;
+	memset(c.w_buffer, 0, sizeof(c.w_buffer));
+	params = json_array();
+	json_array_append_new(params, json_string(addr));
+	datum_test(client_mining_authorize(&c, 3, params) == 0);
+	json_decref(params);
+	datum_test(m.authorized);
+	datum_test(m.payout_script_len == 22);
+	datum_test(strstr(c.w_buffer, "\"result\":true") != NULL);
+}
+
 void datum_stratum_tests(void) {
 	datum_stratum_mod_username_tests();
+	datum_stratum_authorize_tests();
 }

@@ -1382,15 +1382,8 @@ int datum_protocol_pow(void *arg) {
 	memcpy(&msg[i], pow->extranonce, 12); i+=12; // extranonce1+2 17
 	
 	char * const username = (char *)&msg[i];
-	if (((!datum_config.datum_pool_pass_full_users) && (!datum_config.datum_pool_pass_workers)) || pow->username[0] == '\0') {
-		j = snprintf(username, DATUM_PROTOCOL_MAX_USERNAME_LEN + 1, "%s", datum_config.mining_pool_address);
-	} else if (datum_config.datum_pool_pass_full_users && pow->username[0] != '.') {
-		// TODO: Make sure the usernames are addresses, and if not use one of the configured addresses
-		j = snprintf(username, DATUM_PROTOCOL_MAX_USERNAME_LEN + 1, "%s", pow->username);
-	} else {
-		// append the miner's username to the configured address as .workername
-		j = snprintf(username, DATUM_PROTOCOL_MAX_USERNAME_LEN + 1, "%s%s%s", datum_config.mining_pool_address, (pow->username[0] == '.') ? "" : ".", pow->username);
-	}
+	/* The miner username is the only payout identity forwarded to Prime. */
+	j = snprintf(username, DATUM_PROTOCOL_MAX_USERNAME_LEN + 1, "%s", pow->username);
 	if (j < 0) {
 		DLOG_ERROR("Unexpected error copying username to POW!");
 		// Still submit it without a username in case it's a block

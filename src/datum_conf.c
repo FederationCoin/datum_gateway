@@ -124,9 +124,9 @@ const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 	{ .var_type = DATUM_CONF_USERNAME_MODS, .category = "stratum", .name = "username_modifiers", .description = "Modifiers to redirect some portion of shares to alternate usernames", .required = false, .ptr = &datum_config.stratum_username_mod, },
 	
 	// mining settings
-	{ .var_type = DATUM_CONF_STRING, 	.category = "mining", 		.name = "pool_address",				.description = "FederationCoin address used for mining rewards.",
+	{ .var_type = DATUM_CONF_STRING, 	.category = "mining", 		.name = "pool_address",				.description = "Unused for payout. Each miner Stratum address is the recipient.",
 		.example = "\"put your own FederationCoin invoice address here\"",
-		.required = true, .ptr = datum_config.mining_pool_address, .max_string_len = sizeof(datum_config.mining_pool_address) },
+		.required = false, .ptr = datum_config.mining_pool_address, .default_string[0] = "", .max_string_len = sizeof(datum_config.mining_pool_address) },
 	{ .var_type = DATUM_CONF_STRING, 	.category = "mining", 		.name = "coinbase_tag_primary",		.description = "Text to have in the primary coinbase tag when not using pool (overridden by DATUM Pool)",
 		.example_default = true,
 		.required = false, .ptr = datum_config.mining_coinbase_tag_primary,				.default_string[0] = "DATUM Gateway", .max_string_len = sizeof(datum_config.mining_coinbase_tag_primary) },
