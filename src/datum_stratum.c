@@ -905,7 +905,7 @@ const char *datum_stratum_mod_username(const char *username_s, char * const user
 	
 	struct datum_addr_range *range;
 	for (range = umod->ranges; ; ++range) {
-		if (!range->addr) return datum_config.mining_pool_address;
+		if (!range->addr) return username_s;
 		if (share_rnd <= range->max) break;
 	}
 	
@@ -949,6 +949,71 @@ static bool parse_hex_pad8(const char *hex, uint8_t out[8])
 	return false;
 }
 
+static void datum_stratum_hasher_from_coinbase(T_DATUM_STRATUM_JOB *s, const T_DATUM_STRATUM_COINBASE *cb, bool empty_work, datum_header_v2_t *hdr, uint8_t coinb1_out[DATUM_HASHER_COINB1_SIZE], char *coinb1_hex);
+
+static int payout_script_from_username(const char *username, unsigned char *script, int max_len) {
+	char addr[192];
+	const char *dot;
+	size_t n;
+	if (!username) {
+		return 0;
+	}
+	while (*username == ' ' || *username == '\t') {
+		username++;
+	}
+	if (*username == '\0') {
+		return 0;
+	}
+	dot = strchr(username, '.');
+	n = dot ? (size_t)(dot - username) : strlen(username);
+	if (n == 0 || n >= sizeof(addr)) {
+		return 0;
+	}
+	memcpy(addr, username, n);
+	addr[n] = 0;
+	return addr_2_output_script(addr, script, max_len);
+}
+
+static int datum_stratum_solo_coinbase(T_DATUM_STRATUM_JOB *job, const unsigned char *script, int script_len, T_DATUM_STRATUM_COINBASE *out, datum_header_v2_t *hdr, uint8_t coinb1_out[DATUM_HASHER_COINB1_SIZE], char *coinb1_hex) {
+	const T_DATUM_STRATUM_COINBASE *src;
+	int v;
+	int n;
+	int i;
+	if (!job || !script || script_len <= 0 || script_len > 64) {
+		return 0;
+	}
+	src = &job->subsidy_only_coinbase;
+	v = job->solo_coinb2_value_hex;
+	if (v <= 0 || src->coinb1_len <= 0 || (size_t)v + 16 >= sizeof(src->coinb2)) {
+		return 0;
+	}
+	memset(out, 0, sizeof(*out));
+	memcpy(out->coinb1, src->coinb1, sizeof(out->coinb1));
+	out->coinb1_len = src->coinb1_len;
+	memcpy(out->coinb1_bin, src->coinb1_bin, (size_t)src->coinb1_len);
+	memcpy(out->coinb2, src->coinb2, (size_t)v + 16);
+	n = v + 16;
+	n += append_bitcoin_varint_hex((uint64_t)script_len, &out->coinb2[n]);
+	for (i = 0; i < script_len; i++) {
+		uchar_to_hex(&out->coinb2[n], script[i]);
+		n += 2;
+	}
+	if (n + 8 >= (int)sizeof(out->coinb2)) {
+		return 0;
+	}
+	memcpy(&out->coinb2[n], "00000000", 8);
+	n += 8;
+	out->coinb2[n] = 0;
+	out->coinb2_len = 0;
+	for (i = 0; i < n; i += 2) {
+		out->coinb2_bin[i >> 1] = hex2bin_uchar(&out->coinb2[i]);
+		out->coinb2_len++;
+	}
+	*hdr = job->hasher_hdr_empty;
+	datum_stratum_hasher_from_coinbase(job, out, true, hdr, coinb1_out, coinb1_hex);
+	return coinb1_hex[0] != 0;
+}
+
 int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj) {
 	// {"params": ["username", "job", "extranonce2", "time", "nonce", "version"], "id": 1, "method": "mining.submit"}
 	// 0 = username
@@ -984,6 +1049,9 @@ int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj
 	int i;
 	bool quickdiff = false;
 	bool empty_work = false;
+	T_DATUM_STRATUM_COINBASE solo_cb;
+	uint8_t solo_hasher[DATUM_HASHER_COINB1_SIZE];
+	char solo_hasher_hex[DATUM_HASHER_COINB1_SIZE * 2 + 1];
 	bool was_block = false;
 	char new_notify_blockhash[65];
 	
@@ -1116,6 +1184,17 @@ int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj
 		m->share_diff_rejected += job_diff;
 		return 0;
 	}
+	if (!job->is_datum_job) {
+		if (!m->payout_script_len || !datum_stratum_solo_coinbase(job, m->payout_script, m->payout_script_len, &solo_cb, &hdr, solo_hasher, solo_hasher_hex)) {
+			send_unknown_work_error(c, id);
+			m->share_count_rejected++;
+			m->share_diff_rejected += job_diff;
+			return 0;
+		}
+		cb = &solo_cb;
+		hasher_coinb1 = solo_hasher;
+		empty_work = true;
+	}
 	
 	ntime = json_array_get(params_obj, 3);
 	if (!ntime) {
@@ -1173,16 +1252,22 @@ int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj
 	}
 	
 	username = json_array_get(params_obj, 0);
-	if (!username) {
-		username_s = (const char *)"NULL";
+	if (!username || !json_is_string(username)) {
+		username_s = m->last_auth_username;
 	} else {
 		username_s = json_string_value(username);
 		if (!username_s) {
-			username_s = (const char *)"NULL";
+			username_s = m->last_auth_username;
 		}
 	}
+	while (*username_s == ' ' || *username_s == '\t') {
+		username_s++;
+	}
+	if (username_s[0] == '\0') {
+		username_s = m->last_auth_username;
+	}
 	
-	if (datum_config.stratum_username_mod) {
+	if (datum_config.stratum_username_mod && json_is_string(username)) {
 		const char * const tilde = strchr(username_s, '~');
 		if (tilde) {
 			const char * const modname = &tilde[1];
@@ -1389,27 +1474,51 @@ int client_mining_configure(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_
 int client_mining_authorize(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj) {
 	char s[256];
 	const char *username_s;
+	const char *why;
 	json_t *username;
+	unsigned char script[64];
+	int script_len;
+	T_DATUM_THREAD_DATA *t;
+	T_DATUM_STRATUM_JOB *job;
 	
 	T_DATUM_MINER_DATA * const m = c->app_client_data;
 	
 	username = json_array_get(params_obj, 0);
-	if (!username) {
-		username_s = (const char *)"NULL";
+	if (!username || !json_is_string(username)) {
+		username_s = "";
 	} else {
 		username_s = json_string_value(username);
 		if (!username_s) {
-			username_s = (const char *)"NULL";
+			username_s = "";
 		}
+	}
+	while (*username_s == ' ' || *username_s == '\t') {
+		username_s++;
+	}
+	script_len = payout_script_from_username(username_s, script, (int)sizeof(script));
+	if (script_len <= 0) {
+		why = username_s[0] ? "worker address is not valid" : "worker is empty";
+		snprintf(s, sizeof(s), "{\"id\":%"PRIu64",\"result\":null,\"error\":[20,\"%s\",null]}\n", id, why);
+		datum_socket_send_string_to_client(c, s);
+		return 0;
 	}
 	
 	strncpy(m->last_auth_username, username_s, sizeof(m->last_auth_username) - 1);
 	m->last_auth_username[sizeof(m->last_auth_username)-1] = 0;
+	memcpy(m->payout_script, script, (size_t)script_len);
+	m->payout_script_len = script_len;
 	
 	snprintf(s, sizeof(s), "{\"error\":null,\"id\":%"PRIu64",\"result\":true}\n", id);
 	datum_socket_send_string_to_client(c, s);
 	
 	m->authorized = true;
+	t = (T_DATUM_THREAD_DATA *)c->datum_thread;
+	if (t && m->subscribed) {
+		job = ((T_DATUM_STRATUM_THREADPOOL_DATA *)t->app_thread_data)->cur_stratum_job;
+		if (job && !job->is_datum_job) {
+			send_mining_notify(c, true, false, false);
+		}
+	}
 	
 	return 0;
 }
@@ -1530,7 +1639,19 @@ int send_mining_notify(T_DATUM_CLIENT_DATA *c, bool clean, bool quickdiff, bool 
 	}
 	
 	datum_socket_send_string_to_client(c, s);
-	if (new_block) {
+	if (!j->is_datum_job && m->payout_script_len > 0) {
+		T_DATUM_STRATUM_COINBASE solo_cb;
+		datum_header_v2_t solo_hdr;
+		uint8_t solo_hasher[DATUM_HASHER_COINB1_SIZE];
+		char solo_hasher_hex[DATUM_HASHER_COINB1_SIZE * 2 + 1];
+		if (datum_stratum_solo_coinbase(j, m->payout_script, m->payout_script_len, &solo_cb, &solo_hdr, solo_hasher, solo_hasher_hex)) {
+			datum_socket_send_string_to_client(c, solo_hasher_hex);
+		} else if (new_block) {
+			datum_socket_send_string_to_client(c, j->hasher_coinb1_empty_hex);
+		} else {
+			datum_socket_send_string_to_client(c, j->hasher_coinb1_hex[cbselect]);
+		}
+	} else if (new_block) {
 		datum_socket_send_string_to_client(c, j->hasher_coinb1_empty_hex);
 	} else {
 		datum_socket_send_string_to_client(c, j->hasher_coinb1_hex[cbselect]);

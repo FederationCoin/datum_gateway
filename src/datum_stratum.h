@@ -149,6 +149,8 @@ typedef struct {
 	int available_coinbase_outputs_count;
 	unsigned char pool_addr_script[64];
 	int pool_addr_script_len;
+	/* Hex index of the subsidy value in subsidy_only_coinbase.coinb2. Solo rebuilds the script after it. */
+	int solo_coinb2_value_hex;
 	
 	uint8_t hasher_prev_hidden[32];
 	char hasher_prev_hidden_hex[65];
@@ -230,6 +232,8 @@ typedef struct {
 	uint64_t connect_tsms;
 	char useragent[128];
 	char last_auth_username[192];
+	unsigned char payout_script[64];
+	int payout_script_len;
 	
 	bool extension_version_rolling;
 	uint32_t extension_version_rolling_mask;

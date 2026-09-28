@@ -344,6 +344,19 @@ int datum_stratum_coinbase_fit_to_template(int max_sz, int fixed_bytes, T_DATUM_
 	}
 }
 
+static void datum_job_set_solo_payout_script(T_DATUM_STRATUM_JOB *s) {
+	static const unsigned char placeholder[22] = { 0x00, 0x14 };
+	s->is_datum_job = false;
+	s->pool_addr_script_len = 0;
+	if (datum_config.mining_pool_address[0]) {
+		s->pool_addr_script_len = addr_2_output_script(datum_config.mining_pool_address, &s->pool_addr_script[0], 64);
+	}
+	if (!s->pool_addr_script_len) {
+		memcpy(&s->pool_addr_script[0], placeholder, sizeof placeholder);
+		s->pool_addr_script_len = (int)sizeof placeholder;
+	}
+}
+
 void generate_base_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool new_block) {
 	char cb[512];
 	int cb_input_sz = 0;
@@ -359,9 +372,7 @@ void generate_base_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool ne
 		memcpy(&s->pool_addr_script[0], datum_config.override_mining_pool_scriptsig, datum_config.override_mining_pool_scriptsig_len);
 		s->is_datum_job = true;
 	} else {
-		// No pool
-		s->pool_addr_script_len = addr_2_output_script(datum_config.mining_pool_address, &s->pool_addr_script[0], 64);
-		s->is_datum_job = false;
+		datum_job_set_solo_payout_script(s);
 	}
 	if (!s->pool_addr_script_len) {
 		DLOG_FATAL("Could not generate output script for pool addr! Perhaps invalid? This is bad.");
@@ -443,6 +454,9 @@ void generate_base_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool ne
 	// append our payout output value and script
 	if (new_block) {
 		j = cb2idx[0];
+		if (!s->is_datum_job) {
+			s->solo_coinb2_value_hex = j;
+		}
 	}
 	
 	cb2idx[0] += sprintf(&s->coinbase[0].coinb2[cb2idx[0]], "%016llx", (unsigned long long)__builtin_bswap64(s->coinbase_value)); // TODO: Profile a faster way to do this
@@ -534,9 +548,7 @@ void generate_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool empty_o
 			empty_only = true;
 		}
 	} else {
-		// No pool
-		s->pool_addr_script_len = addr_2_output_script(datum_config.mining_pool_address, &s->pool_addr_script[0], 64);
-		s->is_datum_job = false;
+		datum_job_set_solo_payout_script(s);
 		empty_only = true;
 	}
 	if (!s->pool_addr_script_len) {
@@ -649,6 +661,9 @@ void generate_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool empty_o
 	// append our payout output value and script
 	if (empty_only) {
 		j = cb2idx[0];
+		if (!s->is_datum_job) {
+			s->solo_coinb2_value_hex = j;
+		}
 	}
 	
 	cb2idx[0] += sprintf(&s->coinbase[0].coinb2[cb2idx[0]], "%016llx", (unsigned long long)__builtin_bswap64(s->coinbase_value)); // TODO: Profile a faster way to do this
