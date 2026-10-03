@@ -83,6 +83,8 @@ int generate_coinbase_input(int height, char *cb, int *target_pot_index) {
 		tag_len[0] = strlen(datum_config.override_mining_coinbase_tag_primary);
 	}
 	tag_len[1] = strlen(datum_config.mining_coinbase_tag_secondary);
+	if (tag_len[0] > 6) tag_len[0] = 6;
+	if (tag_len[0] + tag_len[1] > 6) tag_len[1] = 6 - tag_len[0];
 	k = tag_len[0] + tag_len[1] + 2;
 	if (!tag_len[1]) {
 		k--;
@@ -200,7 +202,6 @@ void generate_coinbase_txns_for_stratum_job_subtypebysize(T_DATUM_STRATUM_JOB *s
 	if (special_coinb1) {
 		i2 = (300 - cb1idx[coinbase_index])>>1;
 		if (i2 < 0) i2 = 0;
-		space_for_en_in_coinbase = false;
 	}
 	m = 0;
 	mval = 0;
@@ -388,11 +389,9 @@ void generate_base_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool ne
 	
 	// null terminate... probably not needed
 	cb[i] = 0;
-	
-	if (cb_input_sz <= 85) {
-		space_for_en_in_coinbase = true;
-	}
-	
+
+	space_for_en_in_coinbase = true;
+
 	if (space_for_en_in_coinbase) {
 		cb1idx[0] += append_bitcoin_varint_hex(cb_input_sz+15, &s->coinbase[0].coinb1[cb1idx[0]]); // 15 bytes for extranonce+uid push + data
 	} else {
@@ -569,13 +568,9 @@ void generate_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool empty_o
 	
 	// null terminate... probably not needed
 	cb[i] = 0;
-	
-	// do we have space in the coinbase for the extranonce for types that can do it this way?
-	// we need 1 byte for the push, 2 for the enprefix, 4 for en1 and 8 for en2 = 15 bytes
-	// coinbase max is 100
-	if (cb_input_sz <= 85) {
-		space_for_en_in_coinbase = true;
-	}
+
+	// The extranonce stays in the scriptSig. The tag cap keeps that script short.
+	space_for_en_in_coinbase = true;
 	
 	// multiple coinbase options
 	// 0 = "empty" --- just pays pool addr, and possibly TIDES data.  extranonce in coinbase if fits, or in first output if not.
@@ -588,7 +583,7 @@ void generate_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool empty_o
 	// only type 2 *needs* the OP_RETURN extranonce, unless the coinbase itself is too long
 	// set the len, and copy over the rest of the coinbase
 	for(i=0;i<MAX_COINBASE_TYPES;i++) {
-		if ((i!=2) && (space_for_en_in_coinbase)) {
+		if (space_for_en_in_coinbase) {
 			cb1idx[i] += append_bitcoin_varint_hex(cb_input_sz+15, &s->coinbase[i].coinb1[cb1idx[i]]);
 		} else {
 			cb1idx[i] += append_bitcoin_varint_hex(cb_input_sz, &s->coinbase[i].coinb1[cb1idx[i]]);
@@ -599,7 +594,7 @@ void generate_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool empty_o
 		s->target_pot_index = target_pot_index + (cb1idx[i]>>1);
 		cb1idx[i] += cb_input_sz*2;
 		
-		if ((i!=2) && (space_for_en_in_coinbase)) {
+		if (space_for_en_in_coinbase) {
 			// if we are doing extranonce in the coinbase, then this is ALMOST the end of coinbase1
 			// we need a PUSH 14 and our enprefix in the coinbase
 			uchar_to_hex(&s->coinbase[i].coinb1[cb1idx[i]], 0x0E);
@@ -722,7 +717,6 @@ void generate_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool empty_o
 			cb_req_sz[1] = cb_req_sz[2] = cb_req_sz[3] = cb_req_sz[4] = cb_req_sz[5] = 119 + s->pool_addr_script_len + cb_input_sz + 10;
 		} else {
 			cb_req_sz[1] = cb_req_sz[2] = cb_req_sz[3] = cb_req_sz[4] = cb_req_sz[5] = 119 + s->pool_addr_script_len + cb_input_sz;
-			cb_req_sz[2] += 10; // always OP_RETURN extranonce for type 2
 		}
 		
 		// TYPE 1 - "Nicehash" friendly, max 500 bytes
