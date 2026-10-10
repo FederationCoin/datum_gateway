@@ -20,8 +20,13 @@ and so on.
 
 Some miners replace special characters (anything except alphanumeric, underscores, periods, and tildes) with hex codes (for example, `%` becomes `%25`), which can contribute toward reaching these limits and/or potentially confuse anything looking for them.
 
-Note that Stratum usernames are *only* used for pooled mining.
-When in non-pooled mode, they have no effect whatsoever, and only `mining`.`pool_address` is used to create blocks.
+Solo on this gateway is solo mining. The Stratum username is a FederationCoin address, with an optional `.name` label. Each distinct address is its own coinbase, and that connection grinds that coinbase. The connection that finds the block is the one whose coinbase is submitted. Several workers may name one address and share that coinbase. Different addresses are different payouts, and the first block to land wins.
+
+Prime is the pool path. The gateway forwards each username. Prime holds the coinbase and credits those names.
+
+Upstream DATUM, in solo, ignores every miner username and grinds one coinbase for `mining`.`pool_address`. That accepts a Stratum username and then discards it. This gateway honors the username in both modes. The coinbase does not change the chance that any hash is a block, and a new tip still sends the same clean-job notify, so stale submissions are not more likely.
+
+`mining`.`pool_address` is not the payee.
 
 ## Bitcoin address requirements (non-pooled mode)
 
@@ -34,20 +39,11 @@ It will not detect if you are using an address for the wrong network.
 Immediately following the Bitcoin address, you may append a period (`.`) and an arbitrary worker name.
 For compatibility, pools might also support an underscore (`_`) separator, but the DATUM Gateway codebase itself does not, and the period must be used to make use of Gateway features.
 
-If the Stratum username *begins* with a period, it is interpreted as a worker name only, and appended to the Gateway's default username (`mining`.`pool_address`) before being sent to the pool.
+A username that does not start with a FederationCoin address is rejected.
 
 ## Passing usernames to the pool
 
-There are three different ways to pass usernames to your pool.
-
-By default, the Stratum username is always passed in full, as-is.
-You can make this explicit by setting `datum`.`pool_pass_full_users` to `true` in the config file, or "Send Miner Usernames To Pool: Override Bitcoin Address" in the web configurator.
-
-If you change `datum`.`pool_pass_full_users` to `false`, you can then set `datum`.`pool_pass_workers` instead (or "Send Miner Usernames To Pool: Send as worker names" in the web configurator).
-With this setting, the entire Stratum username will be appended after the default username (`mining`.`pool_address`) as a worker.
-
-Finally, if you set both options to `false`, the Stratum username will be ignored entirely.
-Instead, only the configured default username (`mining`.`pool_address`) will be used, without any worker names.
+Prime is always given the Stratum username. `datum`.`pool_pass_workers` and `datum`.`pool_pass_full_users` are not consulted.
 
 ## Username modifiers (advanced)
 
@@ -94,4 +90,4 @@ if you assign *more* than 100%, that portion above will not have any shares subm
 Do not rely on these behaviours.
 Always specify the full 100% range explicitly.
 
-NOTE: This feature is handled when shares are received by the Gateway's Stratum server, and will therefore only work if you have `datum`.`pool_pass_full_users` enabled.
+NOTE: This feature is handled when shares are received by the Gateway's Stratum server. A modifier range that does not cover the share stays on the miner's username.

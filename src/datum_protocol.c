@@ -74,6 +74,7 @@
 #include "datum_blocktemplates.h"
 #include "datum_coinbaser.h"
 #include "datum_queue.h"
+#include "datum_stratum_ws.h"
 #include "git_version.h"
 
 atomic_int datum_protocol_client_active = 0;
@@ -94,7 +95,7 @@ int protocol_state = 0;
 unsigned char server_send_buffer[DATUM_PROTOCOL_BUFFER_SIZE];
 unsigned char server_recv_buffer[DATUM_PROTOCOL_BUFFER_SIZE];
 
-uint32_t sending_header_key = 0xDC871829; // initial send header key ... changed by handshake function
+uint32_t sending_header_key = DATUM_PROTOCOL_INITIAL_HEADER_XOR; // initial send header key ... changed by handshake function
 uint32_t receiving_header_key = 0; // set by handshake function
 
 unsigned char session_nonce_sender[crypto_box_NONCEBYTES];
@@ -153,6 +154,27 @@ unsigned char datum_protocol_setup_new_job_idx(void *sx) {
 
 static inline void datum_xor_header_key(void *h, uint32_t key) {
 	*((uint32_t *)h) ^= key;
+}
+
+bool datum_protocol_decode_identity_header(T_DATUM_PROTOCOL_HEADER *h) {
+	T_DATUM_PROTOCOL_HEADER ident;
+	
+	if (!h) {
+		return false;
+	}
+	ident = *h;
+	datum_xor_header_key(&ident, DATUM_PROTOCOL_INITIAL_HEADER_XOR);
+	if (ident.proto_cmd != DATUM_PROTOCOL_IDENTITY_CMD) {
+		return false;
+	}
+	if (ident.cmd_len != DATUM_PROTOCOL_IDENTITY_SIZE) {
+		return false;
+	}
+	if (ident.reserved || ident.is_signed || ident.is_encrypted_pubkey || ident.is_encrypted_channel) {
+		return false;
+	}
+	*h = ident;
+	return true;
 }
 
 uint32_t datum_header_xor_feedback(const uint32_t i) {
@@ -273,6 +295,29 @@ unsigned char datum_coinbaser_v2_response_buf_idx = 0;
 uint64_t datum_coinbaser_v2_response_value[2] = { 0, 0 };
 int datum_coinbaser_v2_response_len[2] = { 0, 0 };
 
+#if defined(__APPLE__)
+/* The Apple SDK does not declare pthread_mutex_timedlock. This wait is a
+ * five-second deadline on a rarely taken lock, so try until the deadline. */
+static int datum_mutex_timedlock(pthread_mutex_t *mutex, const struct timespec *deadline) {
+	int rc;
+	while ((rc = pthread_mutex_trylock(mutex)) == EBUSY) {
+		struct timespec now;
+		if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
+			return errno;
+		}
+		if (now.tv_sec > deadline->tv_sec ||
+		    (now.tv_sec == deadline->tv_sec && now.tv_nsec >= deadline->tv_nsec)) {
+			return ETIMEDOUT;
+		}
+		const struct timespec pause = {.tv_sec = 0, .tv_nsec = 1000000L};
+		nanosleep(&pause, NULL);
+	}
+	return rc;
+}
+#else
+#define datum_mutex_timedlock pthread_mutex_timedlock
+#endif
+
 int datum_protocol_coinbaser_fetch_response(int len, unsigned char *data) {
 	if (len < 12) {
 		DLOG_DEBUG("Invalid coinbaser received!");
@@ -295,7 +340,7 @@ int datum_protocol_coinbaser_fetch_response(int len, unsigned char *data) {
 		return 0;
 	}
 	
-	rc = pthread_mutex_timedlock(&datum_protocol_coinbaser_fetch_mutex, &ts);
+	rc = datum_mutex_timedlock(&datum_protocol_coinbaser_fetch_mutex, &ts);
 	if (rc != 0) {
 		DLOG_DEBUG("Could not get a lock on the coinbaser reception mutex after 5 seconds... bug?");
 		return 0;
@@ -411,9 +456,9 @@ err:
 	memcpy(datum_config.override_mining_pool_scriptsig, &data[i], a); i+=a;
 	datum_config.override_mining_pool_scriptsig_len = a;
 	
-	// prime ID
-	if (i + 4 > len) goto err;
-	datum_config.prime_id = upk_u32le(data, i); i+=4;
+	// prime ID (64-bit LE; Ocean pin was 4 bytes)
+	if (i + 8 > len) goto err;
+	datum_config.prime_id = upk_u64le(data, i); i+=8;
 	
 	// pool coinbase tag
 	if (i >= len) goto err;
@@ -442,7 +487,7 @@ err:
 	
 	DLOG_DEBUG("DATUM Pool Payout Scriptsig: (len %d) %s",datum_config.override_mining_pool_scriptsig_len, msg);
 	DLOG_DEBUG("DATUM Pool Coinbase Tag:     \"%s\"",datum_config.override_mining_coinbase_tag_primary);
-	DLOG_DEBUG("DATUM Pool Prime ID:         %8.8lx", (unsigned long)datum_config.prime_id);
+	DLOG_DEBUG("DATUM Pool Prime ID:         %16.16" PRIx64, datum_config.prime_id);
 	DLOG_DEBUG("DATUM Pool Min Diff:         %"PRIu64,datum_config.override_vardiff_min);
 	
 	datum_state = 3; // fully ready to make work
@@ -1337,15 +1382,8 @@ int datum_protocol_pow(void *arg) {
 	memcpy(&msg[i], pow->extranonce, 12); i+=12; // extranonce1+2 17
 	
 	char * const username = (char *)&msg[i];
-	if (((!datum_config.datum_pool_pass_full_users) && (!datum_config.datum_pool_pass_workers)) || pow->username[0] == '\0') {
-		j = snprintf(username, DATUM_PROTOCOL_MAX_USERNAME_LEN + 1, "%s", datum_config.mining_pool_address);
-	} else if (datum_config.datum_pool_pass_full_users && pow->username[0] != '.') {
-		// TODO: Make sure the usernames are addresses, and if not use one of the configured addresses
-		j = snprintf(username, DATUM_PROTOCOL_MAX_USERNAME_LEN + 1, "%s", pow->username);
-	} else {
-		// append the miner's username to the configured address as .workername
-		j = snprintf(username, DATUM_PROTOCOL_MAX_USERNAME_LEN + 1, "%s%s%s", datum_config.mining_pool_address, (pow->username[0] == '.') ? "" : ".", pow->username);
-	}
+	/* The miner username is the only payout identity forwarded to Prime. */
+	j = snprintf(username, DATUM_PROTOCOL_MAX_USERNAME_LEN + 1, "%s", pow->username);
 	if (j < 0) {
 		DLOG_ERROR("Unexpected error copying username to POW!");
 		// Still submit it without a username in case it's a block
@@ -1481,6 +1519,7 @@ void *datum_protocol_client(void *args) {
 	hints.ai_socktype = SOCK_STREAM;
 	char port_str[7];  // To hold the port number as a string
 	bool break_again = false;
+	bool identity_frame = false;
 	int sent = 0;
 	T_DATUM_PROTOCOL_HEADER s_header;
 	
@@ -1496,7 +1535,7 @@ void *datum_protocol_client(void *args) {
 	}
 	pthread_rwlock_unlock(&datum_jobs_rwlock);
 	pthread_mutex_lock(&datum_protocol_send_buffer_lock);
-	sending_header_key = 0xDC871829;
+	sending_header_key = DATUM_PROTOCOL_INITIAL_HEADER_XOR;
 	receiving_header_key = 0;
 	protocol_state = 0;
 	server_out_buf = 0;
@@ -1685,6 +1724,7 @@ void *datum_protocol_client(void *args) {
 			case 3: {
 				// we're configured!
 				datum_protocol_client_active = 3;
+				datum_ws_maybe_broadcast_gateway_info();
 				break;
 			}
 			
@@ -1775,9 +1815,13 @@ void *datum_protocol_client(void *args) {
 				}
 				
 				case 4: {
-					datum_xor_header_key(&s_header, receiving_header_key);
-					//DLOG_DEBUG("Server CMD: cmd=%u, len=%u, raw = %8.8x ... rkey = %8.8x", s_header.proto_cmd, s_header.cmd_len, upk_u32le(s_header, 0), receiving_header_key);
-					receiving_header_key = datum_header_xor_feedback(receiving_header_key);
+					identity_frame = false;
+					if (datum_state < 2 && datum_protocol_decode_identity_header(&s_header)) {
+						identity_frame = true;
+					} else {
+						datum_xor_header_key(&s_header, receiving_header_key);
+						receiving_header_key = datum_header_xor_feedback(receiving_header_key);
+					}
 					protocol_state = 5;
 					server_in_buf = 0;
 					if (!s_header.cmd_len) {
@@ -1834,6 +1878,21 @@ void *datum_protocol_client(void *args) {
 					}
 					
 					if (server_in_buf == s_header.cmd_len) {
+							if (identity_frame) {
+								const bool keysMatch = s_header.cmd_len == DATUM_PROTOCOL_IDENTITY_SIZE
+									&& memcmp(server_recv_buffer, pool_keys.pk_ed25519, crypto_sign_PUBLICKEYBYTES) == 0
+									&& memcmp(server_recv_buffer + crypto_sign_PUBLICKEYBYTES, pool_keys.pk_x25519, crypto_box_PUBLICKEYBYTES) == 0;
+								if (!keysMatch) {
+									DLOG_ERROR("DATUM Prime identity keys do not match configured pool_pubkey.");
+									break_again = true;
+									break;
+								}
+								DLOG_INFO("DATUM Prime identity frame received.");
+								identity_frame = false;
+								protocol_state = 0;
+								server_in_buf = 0;
+								continue;
+							}
 						n = datum_protocol_server_msg(&s_header, server_recv_buffer);
 						if (n < 0) {
 							DLOG_DEBUG("datum_protocol_server_msg returned %d",n);
@@ -1863,6 +1922,7 @@ void *datum_protocol_client(void *args) {
 	close(sockfd);
 	close(epollfd);
 	datum_protocol_client_active = 0;
+	datum_ws_maybe_broadcast_gateway_info();
 	datum_queue_free(&pow_queue);
 	
 	// Wait up to 5 seconds for another thread to reconnect

@@ -25,18 +25,26 @@ add_executable(datum_gateway
 	src/datum_gateway.c
 	src/datum_jsonrpc.c
 	src/datum_logger.c
+	src/datum_pow.c
+	src/datum_pow_tests.c
 	src/datum_protocol.c
+	src/datum_protocol_tests.c
 	src/datum_queue.c
 	src/datum_sockets.c
 	src/datum_stratum.c
 	src/datum_stratum_dupes.c
 	src/datum_stratum_tests.c
+	src/datum_stratum_ws.c
+	src/datum_stratum_ws_tests.c
 	src/datum_submitblock.c
 	src/datum_utils.c
 	src/datum_utils_tests.c
 	src/thirdparty_base58.c
 	src/thirdparty_segwit_addr.c
 	${CMAKE_CURRENT_BINARY_DIR}/web_resources.h
+)
+target_compile_definitions(datum_gateway PRIVATE
+	"DATUM_BLOCK_HEADER_V2_JSON=\"${CMAKE_SOURCE_DIR}/src/test/block_header_v2.json\""
 )
 install(TARGETS datum_gateway DESTINATION bin)
 
@@ -53,7 +61,6 @@ set(WEB_RESOURCES
 	www/foot.html
 	www/assets/post.js
 	www/assets/style.css
-	www/assets/icons/datum_logo.svg
 	www/assets/icons/favicon.ico
 )
 
@@ -79,17 +86,40 @@ if(LIBM)
 endif()
 
 set(ARGP_LIBS "")
+set(ARGP_INCLUDE_DIRS "")
 check_function_exists(argp_parse HAVE_ARGP_PARSE)
 if(NOT HAVE_ARGP_PARSE)
-	check_library_exists(argp argp_parse "" ARGP)
-	if(NOT ARGP AND CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
-		# Workaround bug where CMake doesn't check the standard install location on FreeBSD
-		unset(ARGP CACHE)
-		check_library_exists(argp argp_parse "/usr/local/lib" ARGP)
+	# glibc provides argp. macOS needs Homebrew argp-standalone, whose
+	# header is not on the default compiler search path.
+	find_path(ARGP_INCLUDE_DIR NAMES argp.h
+		HINTS /usr/local/include /opt/homebrew/include /opt/local/include)
+	find_library(ARGP_LIBRARY NAMES argp
+		HINTS /usr/local/lib /opt/homebrew/lib /opt/local/lib)
+	if((NOT ARGP_INCLUDE_DIR OR NOT ARGP_LIBRARY) AND NOT CMAKE_CROSSCOMPILING)
+		find_program(BREW_EXECUTABLE brew)
+		if(BREW_EXECUTABLE)
+			execute_process(
+				COMMAND "${BREW_EXECUTABLE}" --prefix argp-standalone
+				OUTPUT_VARIABLE ARGP_BREW_PREFIX
+				OUTPUT_STRIP_TRAILING_WHITESPACE
+				ERROR_QUIET
+				RESULT_VARIABLE ARGP_BREW_RESULT
+			)
+			if(ARGP_BREW_RESULT EQUAL 0 AND NOT "${ARGP_BREW_PREFIX}" STREQUAL "")
+				unset(ARGP_INCLUDE_DIR CACHE)
+				unset(ARGP_LIBRARY CACHE)
+				find_path(ARGP_INCLUDE_DIR NAMES argp.h
+					HINTS "${ARGP_BREW_PREFIX}/include" NO_DEFAULT_PATH)
+				find_library(ARGP_LIBRARY NAMES argp
+					HINTS "${ARGP_BREW_PREFIX}/lib" NO_DEFAULT_PATH)
+			endif()
+		endif()
 	endif()
-	if(ARGP)
-		list(APPEND ARGP_LIBS "argp")
+	if(NOT ARGP_INCLUDE_DIR OR NOT ARGP_LIBRARY)
+		message(FATAL_ERROR "argp is required. On macOS: brew install argp-standalone")
 	endif()
+	set(ARGP_INCLUDE_DIRS "${ARGP_INCLUDE_DIR}")
+	list(APPEND ARGP_LIBS "${ARGP_LIBRARY}")
 endif()
 
 check_function_exists(epoll_wait HAVE_EPOLL_WAIT)
@@ -122,12 +152,14 @@ target_include_directories(datum_gateway
 	PRIVATE
 	$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>
 	${EPOLL_SHIM_INCLUDE_DIRS}
+	${ARGP_INCLUDE_DIRS}
 	${CURL_INCLUDE_DIRS}
 	${JANSSON_INCLUDE_DIRS}
 	${SODIUM_INCLUDE_DIRS}
 )
 target_link_directories(datum_gateway
 	PUBLIC
+	${EPOLL_SHIM_LIBRARY_DIRS}
 	${CURL_LIBRARY_DIRS}
 	${JANSSON_LIBRARY_DIRS}
 	${SODIUM_LIBRARY_DIRS}
@@ -137,7 +169,7 @@ target_link_libraries(datum_gateway
 	${POW_LIBS}
 	Threads::Threads
 	${ARGP_LIBS}
-	${EPOLL_SHIM_LIBRARIES}
+	${EPOLL_SHIM_LIBRARIES} ${EPOLL_SHIM_LDFLAGS} ${EPOLL_SHIM_LDFLAGS_OTHER}
 	${CURL_LIBRARIES} ${CURL_LDFLAGS} ${CURL_LDFLAGS_OTHER}
 	${JANSSON_LIBRARIES} ${JANSSON_LDFLAGS} ${JANSSON_LDFLAGS_OTHER}
 	${SODIUM_LIBRARIES} ${SODIUM_LDFLAGS} ${SODIUM_LDFLAGS_OTHER}
@@ -161,7 +193,6 @@ if(ENABLE_API)
 endif()
 
 install(FILES README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
-install(FILES doc/DATUM_recommended_setup-network_diagram.svg DESTINATION ${CMAKE_INSTALL_DOCDIR}/doc)
 install(FILES doc/usernames.md DESTINATION ${CMAKE_INSTALL_DOCDIR}/doc)
 
 set(PREGEN_DOC ${CMAKE_SOURCE_DIR}/doc/example_datum_gateway_config.json)
