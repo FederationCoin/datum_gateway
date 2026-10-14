@@ -43,6 +43,9 @@
 /* FederationCoin header-v2 GetHash. Profile 0, null XOR key. Not CONVOY. */
 
 #define DATUM_VERSION_HEADER_V2 0x80000000u
+/* Work kind is bits 8-9 of GetCompleteVersion, copied from GBT nVersion. */
+#define DATUM_VERSION_WORK_KIND_SHIFT 8
+#define DATUM_VERSION_WORK_KIND_MASK 0x00000300u
 #define DATUM_FLAG_TIME_OFFSET 4
 #define DATUM_HEADER_V2_SIZE 164
 #define DATUM_HASHER_COINB1_SIZE 39

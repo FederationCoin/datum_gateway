@@ -313,6 +313,7 @@ static void xor_key_mask_bytes(const uint8_t xor_key[16], uint8_t clear_bits, ui
 
 uint32_t datum_pow_complete_version(const datum_header_v2_t *h)
 {
+	/* Preserve bits 8-9 (work kind) from GBT nVersion. Tag 0 is Blake2b. */
 	return DATUM_VERSION_HEADER_V2 | ((uint32_t)h->nVersion & ~DATUM_VERSION_HEADER_V2);
 }
 
