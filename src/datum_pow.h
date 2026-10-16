@@ -80,6 +80,7 @@ bool datum_pow_deserialize_header(const uint8_t in[DATUM_HEADER_V2_SIZE], datum_
 
 void datum_pow_tagged_sha256(const char *tag, const uint8_t *msg, size_t n, uint8_t out[32]);
 int datum_pow_blake2b_32(const uint8_t *in, size_t inlen, uint8_t out[32]);
+int datum_pow_blake2b_64(const uint8_t *in, size_t inlen, uint8_t out[64]);
 
 void datum_pow_merge_mining_commitment(const datum_header_v2_t *h, uint8_t out[32]);
 int datum_pow_asic_preimage(const datum_header_v2_t *h, uint8_t *out, size_t out_max);

@@ -40,6 +40,7 @@
 #include <stdint.h>
 
 #include "datum_pow.h"
+#include "datum_work_kind.h"
 
 #ifndef T_DATUM_CLIENT_DATA
 	#include "datum_sockets.h"
@@ -191,6 +192,7 @@ typedef struct {
 	bool is_datum_job;
 	unsigned char datum_job_idx;
 	unsigned char datum_coinbaser_id;
+	datum_work_kind_t work_kind;
 } T_DATUM_STRATUM_JOB;
 
 typedef struct T_DATUM_STRATUM_THREADPOOL_DATA {

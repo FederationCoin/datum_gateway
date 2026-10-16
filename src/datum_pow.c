@@ -242,6 +242,16 @@ int datum_pow_blake2b_32(const uint8_t *in, size_t inlen, uint8_t out[32])
 	return blake2b_final(&S, out, 32);
 }
 
+int datum_pow_blake2b_64(const uint8_t *in, size_t inlen, uint8_t out[64])
+{
+	datum_blake2b_state S;
+	if (blake2b_init(&S, 64) < 0) {
+		return -1;
+	}
+	blake2b_update(&S, in, inlen);
+	return blake2b_final(&S, out, 64);
+}
+
 void datum_pow_tagged_sha256(const char *tag, const uint8_t *msg, size_t n, uint8_t out[32])
 {
 	uint8_t taghash[32];

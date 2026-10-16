@@ -58,6 +58,7 @@
 #include "datum_coinbaser.h"
 #include "datum_submitblock.h"
 #include "datum_protocol.h"
+#include "datum_job.h"
 #include "datum_pow.h"
 #include "datum_stratum_ws.h"
 
@@ -748,6 +749,13 @@ static inline void send_bad_version_error(T_DATUM_CLIENT_DATA *c, uint64_t id) {
 	send_error_to_client(c, id, "[23,\"bad-version\",null]");
 }
 
+static void send_wrong_gateway_kind_error(T_DATUM_CLIENT_DATA *c, uint64_t id, const char *english)
+{
+	char e[256];
+	snprintf(e, sizeof(e), "[20,\"this gateway is serving %s\",null]", english);
+	send_error_to_client(c, id, e);
+}
+
 static inline void send_rejected_duplicate(T_DATUM_CLIENT_DATA *c, uint64_t id) {
 	send_error_to_client(c, id, "[22,\"duplicate\",null]");
 }
@@ -1128,12 +1136,7 @@ int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj
 	uint8_t ntime8[8];
 	uint8_t nonce8[8];
 	uint8_t extra_nonce1[4];
-	uint8_t extra_nonce12[12];
-	uint8_t work_root[32];
-	uint8_t work[DATUM_HASHER_WORK_SIZE];
-	uint8_t xor_zero[16];
 	datum_header_v2_t hdr;
-	const uint8_t *hasher_coinb1;
 	unsigned char block_header[DATUM_HEADER_V2_SIZE];
 	unsigned char share_hash[32];
 	unsigned char full_cb_txn[MAX_COINBASE_TXN_SIZE_BYTES];
@@ -1155,8 +1158,6 @@ int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj
 	}
 	memcpy(extranonce_bin, extra_nonce1, 4);
 	memcpy(extranonce_bin + 4, extra_nonce2, 8);
-	memcpy(extra_nonce12, extra_nonce1, 4);
-	memcpy(extra_nonce12 + 4, extra_nonce2, 8);
 	
 	coinbase_index = hex2bin_uchar(&job_id_s[0xE]);
 	if (coinbase_index >= MAX_COINBASE_TYPES) {
@@ -1171,11 +1172,9 @@ int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj
 	if (empty_work) {
 		cb = &job->subsidy_only_coinbase;
 		hdr = job->hasher_hdr_empty;
-		hasher_coinb1 = job->hasher_coinb1_empty;
 	} else {
 		cb = &job->coinbase[coinbase_index];
 		hdr = job->hasher_hdr[coinbase_index];
-		hasher_coinb1 = job->hasher_coinb1[coinbase_index];
 	}
 	
 	if (!cb) {
@@ -1192,7 +1191,6 @@ int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj
 			return 0;
 		}
 		cb = &solo_cb;
-		hasher_coinb1 = solo_hasher;
 		empty_work = true;
 	}
 	
@@ -1228,16 +1226,41 @@ int client_mining_submit(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj
 	}
 	nonce_val = upk_u32le(nonce8, 0);
 	
-	if (!datum_pow_work_root(hasher_coinb1, extra_nonce12, work_root)) {
-		send_unknown_work_error(c, id);
-		m->share_count_rejected++;
-		m->share_diff_rejected += job_diff;
-		return 0;
+	{
+		const datum_job_strategy_t *st = datum_job_strategy(job->work_kind);
+		json_t *vparam = json_array_get(params_obj, 5);
+		datum_job_apply_submit(&hdr, job->work_kind, extra_nonce1, extra_nonce2, ntime8, nonce8);
+		if (vparam && json_is_string(vparam) && json_string_value(vparam)[0]) {
+			uint32_t rolled = (uint32_t)strtoul(json_string_value(vparam), NULL, 16);
+			if (datum_job_sha256d_version_roll_locked(datum_pow_complete_version(&hdr), rolled)) {
+				send_error_to_client(c, id, "[20,\"version-roll of work-kind bits is not allowed\",null]");
+				m->share_count_rejected++;
+				m->share_diff_rejected += job_diff;
+				return 0;
+			}
+			if (st->notify_shape == DATUM_NOTIFY_SHA256D) {
+				hdr.nVersion = (int32_t)(rolled & ~DATUM_VERSION_HEADER_V2);
+			}
+		}
+		if (!datum_job_header_kind_matches(&hdr, job->work_kind)) {
+			send_wrong_gateway_kind_error(c, id, datum_work_kind_english(job->work_kind));
+			m->share_count_rejected++;
+			m->share_diff_rejected += job_diff;
+			return 0;
+		}
+		if (!st->tail_ok(&hdr)) {
+			send_error_to_client(c, id, "[22,\"header tail does not match this work kind\",null]");
+			m->share_count_rejected++;
+			m->share_diff_rejected += job_diff;
+			return 0;
+		}
+		if (st->digest(&hdr, share_hash) != 0) {
+			send_unknown_work_error(c, id);
+			m->share_count_rejected++;
+			m->share_diff_rejected += job_diff;
+			return 0;
+		}
 	}
-	datum_pow_work_header(job->hasher_prev_hidden, nonce8, ntime8, work_root, work);
-	memset(xor_zero, 0, sizeof(xor_zero));
-	datum_pow_asic_pow_hash(work, xor_zero, 0, share_hash);
-	datum_pow_fill_from_submit(&hdr, extra_nonce1, extra_nonce2, ntime8, nonce8);
 	datum_pow_serialize_header(&hdr, block_header);
 	bver = datum_pow_complete_version(&hdr);
 	ntime_val = upk_u32le(ntime8, 0) ^ upk_u32le(ntime8, 4);
@@ -1425,7 +1448,7 @@ int client_mining_configure(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_
 					if (!strcmp("version-rolling", s)) {
 						new_vroll = true;
 						m->extension_version_rolling = true;
-						m->extension_version_rolling_mask = 0x1fffe000;
+						m->extension_version_rolling_mask = 0x1fffe000 & ~DATUM_SHA256D_VERSION_LOCK_MASK;
 						m->extension_version_rolling_bits = 16;
 						t = json_object_get(p2, "version-rolling.mask");
 						if (t) {
@@ -1627,38 +1650,59 @@ int send_mining_notify(T_DATUM_CLIENT_DATA *c, bool clean, bool quickdiff, bool 
 	
 	cb = &j->coinbase[cbselect];
 	
-	if (quickdiff) {
-		snprintf(s, sizeof(s), "\"Q%s%2.2x\",\"%s\",\"", j->job_id, cbselect, j->hasher_prev_hidden_hex);
-	} else {
-		if (!new_block) {
-			snprintf(s, sizeof(s), "\"%s%2.2x\",\"%s\",\"", j->job_id, cbselect, j->hasher_prev_hidden_hex);
+	{
+		const datum_job_strategy_t *st = datum_job_strategy(j->work_kind);
+		if (st->notify_shape == DATUM_NOTIFY_SHA256D) {
+			const datum_header_v2_t *hdr = new_block ? &j->hasher_hdr_empty : &j->hasher_hdr[cbselect];
+			char prev[65];
+			char merkle[65];
+			if (new_block) {
+				cb = &j->subsidy_only_coinbase;
+			}
+			datum_pow_bytes_to_hex(hdr->hashPrevBlock, 32, prev);
+			datum_pow_bytes_to_hex(hdr->hashMerkleRoot, 32, merkle);
+			if (quickdiff) {
+				snprintf(s, sizeof(s), "\"Q%s%2.2x\",\"%s\",\"%s\",\"\",[],\"%s\",\"%s\",\"%08x\",", j->job_id, cbselect, prev, merkle, j->hasher_version_hex, j->nbits, hdr->nTime);
+			} else if (!new_block) {
+				snprintf(s, sizeof(s), "\"%s%2.2x\",\"%s\",\"%s\",\"\",[],\"%s\",\"%s\",\"%08x\",", j->job_id, cbselect, prev, merkle, j->hasher_version_hex, j->nbits, hdr->nTime);
+			} else {
+				snprintf(s, sizeof(s), "\"N%s%2.2x\",\"%s\",\"%s\",\"\",[],\"%s\",\"%s\",\"%08x\",", j->job_id, (unsigned int)255, prev, merkle, j->hasher_version_hex, j->nbits, hdr->nTime);
+			}
+			datum_socket_send_string_to_client(c, s);
 		} else {
-			snprintf(s, sizeof(s), "\"N%s%2.2x\",\"%s\",\"", j->job_id, (unsigned int)255, j->hasher_prev_hidden_hex);
-			cb = &j->subsidy_only_coinbase;
+			if (quickdiff) {
+				snprintf(s, sizeof(s), "\"Q%s%2.2x\",\"%s\",\"", j->job_id, cbselect, j->hasher_prev_hidden_hex);
+			} else {
+				if (!new_block) {
+					snprintf(s, sizeof(s), "\"%s%2.2x\",\"%s\",\"", j->job_id, cbselect, j->hasher_prev_hidden_hex);
+				} else {
+					snprintf(s, sizeof(s), "\"N%s%2.2x\",\"%s\",\"", j->job_id, (unsigned int)255, j->hasher_prev_hidden_hex);
+					cb = &j->subsidy_only_coinbase;
+				}
+			}
+			datum_socket_send_string_to_client(c, s);
+			if (!j->is_datum_job && m->payout_script_len > 0) {
+				T_DATUM_STRATUM_COINBASE solo_cb;
+				datum_header_v2_t solo_hdr;
+				uint8_t solo_hasher[DATUM_HASHER_COINB1_SIZE];
+				char solo_hasher_hex[DATUM_HASHER_COINB1_SIZE * 2 + 1];
+				if (datum_stratum_solo_coinbase(j, m->payout_script, m->payout_script_len, &solo_cb, &solo_hdr, solo_hasher, solo_hasher_hex)) {
+					datum_socket_send_string_to_client(c, solo_hasher_hex);
+				} else if (new_block) {
+					datum_socket_send_string_to_client(c, j->hasher_coinb1_empty_hex);
+				} else {
+					datum_socket_send_string_to_client(c, j->hasher_coinb1_hex[cbselect]);
+				}
+			} else if (new_block) {
+				datum_socket_send_string_to_client(c, j->hasher_coinb1_empty_hex);
+			} else {
+				datum_socket_send_string_to_client(c, j->hasher_coinb1_hex[cbselect]);
+			}
+			/* mill parseNotify: coinb2 empty, merkle [], version, nbits, ntime 4 or 8 hex */
+			snprintf(s, sizeof(s), "\",\"\",[],\"%s\",\"%s\",\"%s\",", j->hasher_version_hex, j->nbits, j->hasher_ntime8_hex);
+			datum_socket_send_string_to_client(c, s);
 		}
 	}
-	
-	datum_socket_send_string_to_client(c, s);
-	if (!j->is_datum_job && m->payout_script_len > 0) {
-		T_DATUM_STRATUM_COINBASE solo_cb;
-		datum_header_v2_t solo_hdr;
-		uint8_t solo_hasher[DATUM_HASHER_COINB1_SIZE];
-		char solo_hasher_hex[DATUM_HASHER_COINB1_SIZE * 2 + 1];
-		if (datum_stratum_solo_coinbase(j, m->payout_script, m->payout_script_len, &solo_cb, &solo_hdr, solo_hasher, solo_hasher_hex)) {
-			datum_socket_send_string_to_client(c, solo_hasher_hex);
-		} else if (new_block) {
-			datum_socket_send_string_to_client(c, j->hasher_coinb1_empty_hex);
-		} else {
-			datum_socket_send_string_to_client(c, j->hasher_coinb1_hex[cbselect]);
-		}
-	} else if (new_block) {
-		datum_socket_send_string_to_client(c, j->hasher_coinb1_empty_hex);
-	} else {
-		datum_socket_send_string_to_client(c, j->hasher_coinb1_hex[cbselect]);
-	}
-	/* mill parseNotify: coinb2 empty, merkle [], version, nbits, ntime 4 or 8 hex */
-	snprintf(s, sizeof(s), "\",\"\",[],\"%s\",\"%s\",\"%s\",", j->hasher_version_hex, j->nbits, j->hasher_ntime8_hex);
-	datum_socket_send_string_to_client(c, s);
 	
 	(void)cb;
 	(void)cb1;
@@ -1767,6 +1811,17 @@ int client_mining_subscribe(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_
 	if (m->subscribed) {
 		// don't resubscribe them... that'd be dumb.
 		return 0;
+	}
+	
+	if (params_obj && json_is_array(params_obj)) {
+		json_t *kind_extra = json_array_get(params_obj, 1);
+		if (json_is_string(kind_extra)) {
+			const char *serving = datum_job_subscribe_extra_error(datum_config.mining_work_kind_id, json_string_value(kind_extra));
+			if (serving) {
+				send_wrong_gateway_kind_error(c, id, serving);
+				return 0;
+			}
+		}
 	}
 	
 	// set default diff
@@ -2117,6 +2172,8 @@ void datum_stratum_job_refresh_hasher(T_DATUM_STRATUM_JOB *s)
 	base.flags = 0;
 	base.height = (int32_t)s->height;
 	base.txcount = (uint16_t)(1 + s->block_template->txn_count);
+	datum_job_apply_kind(&base, s->work_kind);
+	datum_job_strategy(s->work_kind)->prepare(&base);
 	for (i = 0; i < MAX_COINBASE_TYPES; ++i) {
 		s->hasher_hdr[i] = base;
 	}
@@ -2181,6 +2238,7 @@ void update_stratum_job(T_DATUM_TEMPLATE_DATA *block_template, bool new_block, i
 	
 	// start as not a datum job.  if we have coinbase data and such for it down the line, this will get updated.
 	s->is_datum_job = false;
+	s->work_kind = datum_config.mining_work_kind_id;
 	
 	// prep the coinbase txn(s) for this job
 	generate_base_coinbase_txns_for_stratum_job(s, s->is_new_block);

@@ -38,6 +38,7 @@
 
 #include "datum_jsonrpc.h"
 #include "datum_stratum.h"
+#include "datum_conf.h"
 #include "datum_utils.h"
 
 void datum_stratum_mod_username_tests() {
@@ -179,6 +180,7 @@ void datum_stratum_mod_username_tests() {
 }
 
 int client_mining_authorize(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj);
+int client_mining_subscribe(T_DATUM_CLIENT_DATA *c, uint64_t id, json_t *params_obj);
 
 void datum_stratum_authorize_tests(void) {
 	T_DATUM_CLIENT_DATA c;
@@ -217,7 +219,28 @@ void datum_stratum_authorize_tests(void) {
 	datum_test(strstr(c.w_buffer, "\"result\":true") != NULL);
 }
 
+void datum_stratum_subscribe_kind_tests(void) {
+	T_DATUM_CLIENT_DATA c;
+	T_DATUM_MINER_DATA m;
+	json_t *params;
+
+	memset(&c, 0, sizeof(c));
+	memset(&m, 0, sizeof(m));
+	c.app_client_data = &m;
+	datum_config.mining_work_kind_id = DATUM_WORK_BLAKE2B;
+
+	params = json_array();
+	json_array_append_new(params, json_string("test"));
+	json_array_append_new(params, json_string("sha256d"));
+	datum_test(client_mining_subscribe(&c, 1, params) == 0);
+	json_decref(params);
+	datum_test(!m.subscribed);
+	datum_test(strstr(c.w_buffer, "this gateway is serving Blake2b") != NULL);
+	datum_test(strstr(c.w_buffer, "high-hash") == NULL);
+}
+
 void datum_stratum_tests(void) {
 	datum_stratum_mod_username_tests();
 	datum_stratum_authorize_tests();
+	datum_stratum_subscribe_kind_tests();
 }

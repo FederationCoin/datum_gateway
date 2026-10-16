@@ -143,6 +143,9 @@ const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 		.required = false, .ptr = &datum_config.coinbase_unique_id, 		.default_int = 4242 },
 	{ .var_type = DATUM_CONF_STRING, 	.category = "mining", 		.name = "save_submitblocks_dir",	.description = "Directory to save all submitted blocks to as submitblock JSON files",
 		.required = false, .ptr = datum_config.mining_save_submitblocks_dir,			.default_string[0] = "", .max_string_len = sizeof(datum_config.mining_save_submitblocks_dir) },
+	{ .var_type = DATUM_CONF_STRING, 	.category = "mining", 		.name = "work_kind",			.description = "Work kind this gateway serves from local GBT: blake2b, sha256d, fp8gym, or poseidon2. Subscribe extra naming another kind fails in English.",
+		.example_default = true,
+		.required = false, .ptr = datum_config.mining_work_kind,					.default_string[0] = "blake2b", .max_string_len = sizeof(datum_config.mining_work_kind) },
 	
 	// API/dashboard
 	{ .var_type = DATUM_CONF_STRING, 	.category = "api",	 		.name = "admin_password",			.description = "API password for actions/changes (username 'admin'; disabled if blank)",
@@ -514,6 +517,11 @@ int datum_read_config(const char *conffile) {
 		if (datum_config.extra_block_submissions_urls[i][0] == 0) { break; }
 	}
 	datum_config.extra_block_submissions_count = i;
+	
+	if (!datum_work_kind_parse(datum_config.mining_work_kind, &datum_config.mining_work_kind_id)) {
+		DLOG_FATAL("mining.work_kind must be blake2b, sha256d, fp8gym, or poseidon2");
+		return 0;
+	}
 	
 	if (datum_config.bitcoind_work_update_seconds < 5) {
 		datum_config.bitcoind_work_update_seconds = 5;

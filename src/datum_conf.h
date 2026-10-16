@@ -36,6 +36,8 @@
 #ifndef _DATUM_CONF_H_
 #define _DATUM_CONF_H_
 
+#include "datum_work_kind.h"
+
 #define DATUM_CONFIG_MAX_ARRAY_ENTRIES 32
 #define DATUM_MAX_BLOCK_SUBMITS DATUM_CONFIG_MAX_ARRAY_ENTRIES
 #define DATUM_MAX_SUBMIT_URL_LEN 512
@@ -133,6 +135,8 @@ typedef struct {
 	char mining_pool_name[128];
 	char mining_pool_website[256];
 	char mining_save_submitblocks_dir[256];
+	char mining_work_kind[16];
+	datum_work_kind_t mining_work_kind_id;
 	int coinbase_unique_id;
 	
 	char api_admin_password[72];
