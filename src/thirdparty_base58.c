@@ -59,8 +59,8 @@ size_t blkmk_address_to_script(void *out, size_t outsz, const char *addr) {
 		return 0;
 	addrver = b58check(addrbin, sizeof(addrbin), addr, b58sz);
 	switch (addrver) {
-		case   0:  // Bitcoin pubkey hash
-		case 111:  // Testnet pubkey hash
+		case  36:  // FederationCoin main P2PKH
+		case  95:  // testnet / signet / dummy MAIN P2PKH
 			if (outsz < (rv = 25))
 				return rv;
 			cout[ 0] = 0x76;  // OP_DUP
@@ -70,8 +70,8 @@ size_t blkmk_address_to_script(void *out, size_t outsz, const char *addr) {
 			cout[23] = 0x88;  // OP_EQUALVERIFY
 			cout[24] = 0xac;  // OP_CHECKSIG
 			return rv;
-		case   5:  // Bitcoin script hash
-		case 196:  // Testnet script hash
+		case  16:  // FederationCoin main P2SH
+		case 197:  // testnet / signet / dummy MAIN P2SH
 			if (outsz < (rv = 23))
 				return rv;
 			cout[ 0] = 0xa9;  // OP_HASH160

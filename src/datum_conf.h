@@ -36,6 +36,8 @@
 #ifndef _DATUM_CONF_H_
 #define _DATUM_CONF_H_
 
+#include "datum_work_kind.h"
+
 #define DATUM_CONFIG_MAX_ARRAY_ENTRIES 32
 #define DATUM_MAX_BLOCK_SUBMITS DATUM_CONFIG_MAX_ARRAY_ENTRIES
 #define DATUM_MAX_SUBMIT_URL_LEN 512
@@ -107,6 +109,9 @@ typedef struct {
 	
 	char stratum_v1_listen_addr[128];
 	int stratum_v1_listen_port;
+	char stratum_ws_listen_addr[128];
+	int stratum_ws_listen_port;
+	bool stratum_ws_gateway_info;
 	int stratum_v1_max_clients;
 	int stratum_v1_max_threads;
 	int stratum_v1_max_clients_per_thread;
@@ -127,7 +132,11 @@ typedef struct {
 	char mining_pool_address[256];
 	char mining_coinbase_tag_primary[64];
 	char mining_coinbase_tag_secondary[64];
+	char mining_pool_name[128];
+	char mining_pool_website[256];
 	char mining_save_submitblocks_dir[256];
+	char mining_work_kind[16];
+	datum_work_kind_t mining_work_kind_id;
 	int coinbase_unique_id;
 	
 	char api_admin_password[72];
@@ -161,7 +170,7 @@ typedef struct {
 	int datum_protocol_global_timeout;
 	uint64_t datum_protocol_global_timeout_ms;
 	
-	uint32_t prime_id;
+	uint64_t prime_id;
 	unsigned char override_mining_pool_scriptsig[256];
 	int override_mining_pool_scriptsig_len;
 	char override_mining_coinbase_tag_primary[256];

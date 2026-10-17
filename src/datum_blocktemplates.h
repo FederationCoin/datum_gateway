@@ -187,6 +187,7 @@ typedef struct {
 } T_DATUM_TEMPLATE_DATA;
 
 extern const char *datum_blocktemplates_error;
+extern bool datum_blocktemplates_gbt_ok;
 
 int datum_template_init(void);
 T_DATUM_TEMPLATE_DATA *datum_gbt_parser(json_t *gbt);
