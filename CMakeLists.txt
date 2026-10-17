@@ -24,9 +24,14 @@ add_executable(datum_gateway
 	src/datum_conf_tests.c
 	src/datum_gateway.c
 	src/datum_jsonrpc.c
+	src/datum_job.c
+	src/datum_job_fp8.c
+	src/datum_job_poseidon2.c
+	src/datum_job_tests.c
 	src/datum_logger.c
 	src/datum_pow.c
 	src/datum_pow_tests.c
+	src/datum_work_kind.c
 	src/datum_protocol.c
 	src/datum_protocol_tests.c
 	src/datum_queue.c

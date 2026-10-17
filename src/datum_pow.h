@@ -43,8 +43,11 @@
 /* FederationCoin header-v2 GetHash. Profile 0, null XOR key. Not CONVOY. */
 
 #define DATUM_VERSION_HEADER_V2 0x80000000u
+/* Work kind is bits 8-9 of GetCompleteVersion, copied from GBT nVersion. */
+#define DATUM_VERSION_WORK_KIND_SHIFT 8
+#define DATUM_VERSION_WORK_KIND_MASK 0x00000300u
 #define DATUM_FLAG_TIME_OFFSET 4
-#define DATUM_HEADER_V2_SIZE 164
+#define DATUM_HEADER_V2_SIZE 166
 #define DATUM_HASHER_COINB1_SIZE 39
 #define DATUM_HASHER_WORK_SIZE 80
 #define DATUM_EXTRA_NONCE1_SIZE 4
@@ -61,7 +64,7 @@ typedef struct {
 	uint32_t nonce3;
 	uint8_t extranonce[16];
 	uint32_t time_offset;
-	uint16_t txcount;
+	uint32_t txcount;
 	uint8_t flags;
 	uint8_t xor_key_mask_clear_bits;
 	uint8_t xor_key[16];
@@ -77,6 +80,7 @@ bool datum_pow_deserialize_header(const uint8_t in[DATUM_HEADER_V2_SIZE], datum_
 
 void datum_pow_tagged_sha256(const char *tag, const uint8_t *msg, size_t n, uint8_t out[32]);
 int datum_pow_blake2b_32(const uint8_t *in, size_t inlen, uint8_t out[32]);
+int datum_pow_blake2b_64(const uint8_t *in, size_t inlen, uint8_t out[64]);
 
 void datum_pow_merge_mining_commitment(const datum_header_v2_t *h, uint8_t out[32]);
 int datum_pow_asic_preimage(const datum_header_v2_t *h, uint8_t *out, size_t out_max);

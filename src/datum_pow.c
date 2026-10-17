@@ -242,6 +242,16 @@ int datum_pow_blake2b_32(const uint8_t *in, size_t inlen, uint8_t out[32])
 	return blake2b_final(&S, out, 32);
 }
 
+int datum_pow_blake2b_64(const uint8_t *in, size_t inlen, uint8_t out[64])
+{
+	datum_blake2b_state S;
+	if (blake2b_init(&S, 64) < 0) {
+		return -1;
+	}
+	blake2b_update(&S, in, inlen);
+	return blake2b_final(&S, out, 64);
+}
+
 void datum_pow_tagged_sha256(const char *tag, const uint8_t *msg, size_t n, uint8_t out[32])
 {
 	uint8_t taghash[32];
@@ -313,6 +323,7 @@ static void xor_key_mask_bytes(const uint8_t xor_key[16], uint8_t clear_bits, ui
 
 uint32_t datum_pow_complete_version(const datum_header_v2_t *h)
 {
+	/* Preserve bits 8-9 (work kind) from GBT nVersion. Tag 0 is Blake2b. */
 	return DATUM_VERSION_HEADER_V2 | ((uint32_t)h->nVersion & ~DATUM_VERSION_HEADER_V2);
 }
 
@@ -337,12 +348,12 @@ void datum_pow_serialize_header(const datum_header_v2_t *h, uint8_t out[DATUM_HE
 	pk_u32le(out, 84, h->nonce3);
 	memcpy(out + 88, h->extranonce, 16);
 	pk_u32le(out, 104, h->time_offset);
-	pk_u16le(out, 108, h->txcount);
-	out[110] = h->flags;
-	out[111] = h->xor_key_mask_clear_bits;
-	memcpy(out + 112, h->xor_key, 16);
-	pk_u32le(out, 128, (uint32_t)h->height);
-	memcpy(out + 132, h->mm_rhs, 32);
+	pk_u32le(out, 108, h->txcount);
+	out[112] = h->flags;
+	out[113] = h->xor_key_mask_clear_bits;
+	memcpy(out + 114, h->xor_key, 16);
+	pk_u32le(out, 130, (uint32_t)h->height);
+	memcpy(out + 134, h->mm_rhs, 32);
 }
 
 bool datum_pow_deserialize_header(const uint8_t in[DATUM_HEADER_V2_SIZE], datum_header_v2_t *h)
@@ -363,12 +374,12 @@ bool datum_pow_deserialize_header(const uint8_t in[DATUM_HEADER_V2_SIZE], datum_
 	h->nonce3 = upk_u32le(in, 84);
 	memcpy(h->extranonce, in + 88, 16);
 	h->time_offset = upk_u32le(in, 104);
-	h->txcount = upk_u16le(in, 108);
-	h->flags = in[110];
-	h->xor_key_mask_clear_bits = in[111];
-	memcpy(h->xor_key, in + 112, 16);
-	h->height = (int32_t)upk_u32le(in, 128);
-	memcpy(h->mm_rhs, in + 132, 32);
+	h->txcount = upk_u32le(in, 108);
+	h->flags = in[112];
+	h->xor_key_mask_clear_bits = in[113];
+	memcpy(h->xor_key, in + 114, 16);
+	h->height = (int32_t)upk_u32le(in, 130);
+	memcpy(h->mm_rhs, in + 134, 32);
 	if (h->flags & DATUM_FLAG_TIME_OFFSET) {
 		h->nTime = wire + h->time_offset;
 	} else {

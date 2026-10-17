@@ -17,7 +17,8 @@
 		"coinbase_tag_primary": "DATUM Gateway",
 		"pool_name": "",
 		"pool_website": "",
-		"coinbase_tag_secondary": "DATUM User"
+		"coinbase_tag_secondary": "DATUM User",
+		"work_kind": "blake2b"
 	},
 	"api": {
 		"admin_password": "",
