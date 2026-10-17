@@ -118,12 +118,12 @@ void datum_job_tests(void)
 	datum_test(datum_job_header_kind_matches(&h, DATUM_WORK_FP8GYM));
 	datum_test(datum_job_fp8_expand_seed(&h, d0) == 0);
 	datum_pow_bytes_to_hex(d0, 32, hex);
-	if (!datum_test(strcmp(hex, "a9e15cf34f53b88ea156ba88bc7444ca9dcf480412e8d023754ec6c4f303b093") == 0)) {
+	if (!datum_test(strcmp(hex, "1383384b07bda65de7927227a310b4f8bbe481c9eb8ba3ca399518b132cffc59") == 0)) {
 		fprintf(stderr, "fp8 seed got %s\n", hex);
 	}
 	datum_test(datum_job_fp8_digest(&h, d1) == 0);
 	datum_pow_u256_to_hex(d1, hex);
-	if (!datum_test(strcmp(hex, "3332ec622e4c7ac62990a3323d2d62187fb4626b44757b5183cb7d2b97f41d74") == 0)) {
+	if (!datum_test(strcmp(hex, "20c6e0f0b7da617c84b90b7e090d00c5ae162aa9885ddba00c02b7c859241bd5") == 0)) {
 		fprintf(stderr, "fp8 digest got %s\n", hex);
 	}
 }

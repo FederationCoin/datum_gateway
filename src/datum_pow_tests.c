@@ -89,7 +89,7 @@ static bool header_from_fields(json_t *fields, datum_header_v2_t *h)
 		return false;
 	}
 	h->time_offset = (uint32_t)json_integer_value(json_object_get(fields, "m_time_offset"));
-	h->txcount = (uint16_t)json_integer_value(json_object_get(fields, "m_txcount"));
+	h->txcount = (uint32_t)json_integer_value(json_object_get(fields, "m_txcount"));
 	h->flags = (uint8_t)json_integer_value(json_object_get(fields, "m_flags"));
 	h->xor_key_mask_clear_bits = (uint8_t)json_integer_value(json_object_get(fields, "m_xor_key_mask_clear_bits"));
 	if (!datum_pow_u128_from_hex_reversed(json_string_value(json_object_get(fields, "m_xor_key")), h->xor_key)) {

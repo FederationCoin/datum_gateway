@@ -2151,7 +2151,7 @@ static void datum_stratum_hasher_from_coinbase(T_DATUM_STRATUM_JOB *s, const T_D
 	} else {
 		stratum_job_merkle_root_calc(s, txid, hdr->hashMerkleRoot);
 	}
-	hdr->txcount = empty_work ? 1 : (uint16_t)(1 + s->block_template->txn_count);
+	hdr->txcount = empty_work ? 1 : (uint32_t)(1 + s->block_template->txn_count);
 	datum_pow_merge_mining_commitment(hdr, commitment);
 	datum_pow_coinb1(commitment, coinb1_out);
 	datum_pow_bytes_to_hex(coinb1_out, DATUM_HASHER_COINB1_SIZE, coinb1_hex);
@@ -2171,7 +2171,7 @@ void datum_stratum_job_refresh_hasher(T_DATUM_STRATUM_JOB *s)
 	base.nBits = s->nbits_uint;
 	base.flags = 0;
 	base.height = (int32_t)s->height;
-	base.txcount = (uint16_t)(1 + s->block_template->txn_count);
+	base.txcount = (uint32_t)(1 + s->block_template->txn_count);
 	datum_job_apply_kind(&base, s->work_kind);
 	datum_job_strategy(s->work_kind)->prepare(&base);
 	for (i = 0; i < MAX_COINBASE_TYPES; ++i) {

@@ -47,7 +47,7 @@
 #define DATUM_VERSION_WORK_KIND_SHIFT 8
 #define DATUM_VERSION_WORK_KIND_MASK 0x00000300u
 #define DATUM_FLAG_TIME_OFFSET 4
-#define DATUM_HEADER_V2_SIZE 164
+#define DATUM_HEADER_V2_SIZE 166
 #define DATUM_HASHER_COINB1_SIZE 39
 #define DATUM_HASHER_WORK_SIZE 80
 #define DATUM_EXTRA_NONCE1_SIZE 4
@@ -64,7 +64,7 @@ typedef struct {
 	uint32_t nonce3;
 	uint8_t extranonce[16];
 	uint32_t time_offset;
-	uint16_t txcount;
+	uint32_t txcount;
 	uint8_t flags;
 	uint8_t xor_key_mask_clear_bits;
 	uint8_t xor_key[16];
